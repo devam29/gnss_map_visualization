@@ -19,6 +19,10 @@
             z-index: 1000;
         }
         #slider-value { font-weight: bold; }
+        canvas {
+            display: block;
+            width: 100%;
+        }
     </style>
 </head>
 <body>
@@ -41,100 +45,183 @@
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
 
 <script>
-    const map = L.map('map').setView([46.5, 2.5], 5);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
+const map = L.map('map').setView([46.5, 8.2], 7);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+}).addTo(map);
 
-    const markerGroup = L.layerGroup().addTo(map);
-    let stationData = [];
+const markerGroup = L.layerGroup().addTo(map);
+let stationData = [];
 
-    const slider = document.getElementById("valueSlider");
-    const sliderValueDisplay = document.getElementById("slider-value");
-    const metricSelect = document.getElementById("metricSelect");
+const slider = document.getElementById("valueSlider");
+const sliderValueDisplay = document.getElementById("slider-value");
+const metricSelect = document.getElementById("metricSelect");
 
-    Papa.parse("full_df_scores.csv", {
+Papa.parse("full_df_scores.csv", {
+    download: true,
+    header: true,
+    dynamicTyping: true,
+    complete: function(results) {
+        stationData = results.data;
+        updateMarkers();
+    }
+});
+
+slider.addEventListener("input", () => {
+    sliderValueDisplay.textContent = parseFloat(slider.value).toFixed(2);
+    updateMarkers();
+});
+
+metricSelect.addEventListener("change", () => {
+    const metric = metricSelect.value;
+    if (metric === "Count") {
+        slider.min = 0;
+        slider.max = 5000;
+        slider.step = 100;
+        slider.value = 5000;
+    } else if (metric === "FRI") {
+        slider.min = 0;
+        slider.max = 3;
+        slider.step = 0.01;
+        slider.value = 3;
+    } else {
+        slider.min = 0;
+        slider.max = 1;
+        slider.step = 0.01;
+        slider.value = 1;
+    }
+    sliderValueDisplay.textContent = slider.value;
+    updateMarkers();
+});
+
+function updateMarkers() {
+    markerGroup.clearLayers();
+    const threshold = parseFloat(slider.value);
+    const metric = metricSelect.value;
+
+    stationData.forEach(station => {
+        const value = station[metric];
+        if (value !== null && value <= threshold) {
+            const marker = L.circleMarker([station.lat, station.lon], {
+                radius: 6,
+                color: getColor(value),
+                fillColor: getColor(value),
+                fillOpacity: 0.8,
+                weight: 1
+            });
+
+            marker.on('click', () => {
+                fetchStationPlot(station.Station_Name, station);
+            });
+
+            markerGroup.addLayer(marker);
+        }
+    });
+}
+
+function getColor(value) {
+    const max = parseFloat(slider.max);
+    const normalized = Math.min(1, value / max);
+    const r = Math.floor(255 * (1 - normalized));
+    const g = Math.floor(255 * normalized);
+    return `rgb(${r},${g},0)`;
+}
+
+function fetchStationPlot(stationName, station) {
+    Papa.parse(`station_plots/${stationName}.csv`, {
         download: true,
         header: true,
         dynamicTyping: true,
         complete: function(results) {
-            stationData = results.data;
-            updateMarkers();
-        }
-    });
+            const data = results.data;
+            const labels = data.map(row => row.Epoch_Time);
+            const precip = data.map(row => row.Rolling_Sum);
+            const truth = data.map(row => row.true_label);
+            const lstm = data.map(row => row.Predicted_lstm);
+            const nn = data.map(row => row.Predicted_nn);
+            const xgb = data.map(row => row.Predicted_Binary);
 
-    // Update map on slider or metric change
-    slider.addEventListener("input", () => {
-        sliderValueDisplay.textContent = parseFloat(slider.value).toFixed(2);
-        updateMarkers();
-    });
+            const html = `
+                <div style="width: 600px;">
+                    <strong>${stationName}</strong><br>
+                    F1: ${station.F1?.toFixed(2)} | TFR: ${station.TFR?.toFixed(2)}<br>
+                    Count: ${station.Count} | Height: ${station.height}<br><br>
+                    <canvas id="plot-${stationName}"></canvas>
+                </div>
+            `;
+            const popup = L.popup({ maxWidth: 700 }).setLatLng([station.lat, station.lon]).setContent(html).openOn(map);
 
-    metricSelect.addEventListener("change", () => {
-        const metric = metricSelect.value;
-        // Adjust slider range dynamically if needed
-        if (metric === "Count") {
-            slider.min = 0;
-            slider.max = 5000;
-            slider.step = 100;
-            slider.value = 5000;
-        } else if (metric === "FRI") {
-            slider.min = 0;
-            slider.max = 3;
-            slider.step = 0.01;
-            slider.value = 3;
-        } else {
-            slider.min = 0;
-            slider.max = 1;
-            slider.step = 0.01;
-            slider.value = 1;
-        }
-        sliderValueDisplay.textContent = slider.value;
-        updateMarkers();
-    });
-
-    function updateMarkers() {
-        markerGroup.clearLayers();
-        const threshold = parseFloat(slider.value);
-        const metric = metricSelect.value;
-
-        stationData.forEach(station => {
-            const value = station[metric];
-            if (value !== null && value <= threshold) {
-                const marker = L.circleMarker([station.lat, station.lon], {
-                    radius: 6,
-                    color: getColor(value),
-                    fillColor: getColor(value),
-                    fillOpacity: 0.8,
-                    weight: 1
+            setTimeout(() => {
+                const ctx = document.getElementById(`plot-${stationName}`).getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Precipitation',
+                                data: precip,
+                                borderColor: '#1f77b4',
+                                yAxisID: 'y1',
+                                fill: false
+                            },
+                            {
+                                label: 'Ground Truth',
+                                data: truth,
+                                borderColor: '#2e2e2e',
+                                yAxisID: 'y2',
+                                stepped: true
+                            },
+                            {
+                                label: 'LSTM',
+                                data: lstm,
+                                borderColor: '#9467bd',
+                                yAxisID: 'y2',
+                                stepped: true
+                            },
+                            {
+                                label: 'NN',
+                                data: nn,
+                                borderColor: '#2ca02c',
+                                yAxisID: 'y2',
+                                stepped: true
+                            },
+                            {
+                                label: 'XGB',
+                                data: xgb,
+                                borderColor: '#d62728',
+                                yAxisID: 'y2',
+                                stepped: true
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y1: {
+                                type: 'linear',
+                                position: 'left',
+                                title: { display: true, text: 'Precip (mm)' }
+                            },
+                            y2: {
+                                type: 'linear',
+                                position: 'right',
+                                min: 0,
+                                max: 1.2,
+                                title: { display: true, text: 'Binary Labels' }
+                            }
+                        }
+                    }
                 });
-
-                const popup = `
-                    <strong>${station.Station_Name}</strong><br>
-                    F1: ${station.F1?.toFixed(2)}<br>
-                    TFR: ${station.TFR?.toFixed(2)}<br>
-                    FFR: ${station.FFR?.toFixed(2)}<br>
-                    MFR: ${station.MFR?.toFixed(2)}<br>
-                    FRI: ${station.FRI?.toFixed(2)}<br>
-                    Count: ${station.Count}<br>
-                    Height: ${station.height}
-                `;
-
-                marker.bindPopup(popup);
-                marker.addTo(markerGroup);
-            }
-        });
-    }
-
-    function getColor(value) {
-        const max = parseFloat(slider.max);
-        const normalized = Math.min(1, value / max);
-        const r = Math.floor(255 * (1 - normalized));
-        const g = Math.floor(255 * normalized);
-        return `rgb(${r},${g},0)`;
-    }
+            }, 100);
+        }
+    });
+}
 </script>
 </body>
 </html>
