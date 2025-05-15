@@ -41,7 +41,7 @@
   }).addTo(map);
 
   // Load stations data from full_df_scores.csv
-  Papa.parse('gnss_map_visualization/full_df_scores.csv', {
+  Papa.parse('full_df_scores.csv', {
     download: true,
     header: true,
     dynamicTyping: true,
@@ -62,7 +62,7 @@
 
   function fetchStationPlot(stationName, station) {
     // Parse station CSV file inside station_plots folder
-    Papa.parse(`gnss_map_visualization/station_plots/${stationName}.csv`, {
+    Papa.parse(`/station_plots/${stationName}.csv`, {
       download: true,
       header: true,
       dynamicTyping: true,
