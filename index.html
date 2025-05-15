@@ -1,91 +1,75 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>GNSS Station Plot</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8" />
+<title>GNSS Stations Leaflet Map with Plots</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<!-- Leaflet CSS -->
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+/>
 
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-  <!-- PapaParse for CSV -->
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<!-- PapaParse -->
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
-  <style>
-    #map {
-      height: 100vh;
-    }
-
-    #overlay {
-      display: none;
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 750px;
-      height: 90vh;
-      overflow: auto;
-      background: white;
-      border: 2px solid #333;
-      border-radius: 10px;
-      padding: 20px;
-      z-index: 9999;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.4);
-    }
-
-    #overlay button {
-      float: right;
-      margin-bottom: 10px;
-    }
-  </style>
+<style>
+  #map {
+    height: 100vh;
+  }
+  .chart-canvas {
+    display: block;
+    width: 100%;
+  }
+</style>
 </head>
 <body>
-
 <div id="map"></div>
-
-<!-- Floating overlay panel -->
-<div id="overlay">
-  <button onclick="document.getElementById('overlay').style.display='none'">Close ✖</button>
-  <div id="overlay-content"></div>
-</div>
 
 <!-- Leaflet JS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
-  const map = L.map('map').setView([20.0, 78.0], 5);
+  const map = L.map('map').setView([20, 78], 5);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 18
+    maxZoom: 18,
   }).addTo(map);
 
-  // Sample station data (replace with your real station coordinates and name)
-  const sampleStation = {
-    name: "0ABI",
-    lat: 68.354344529,
-    lon: 18.816445476000013,
-    F1: 0.82,
-    TFR: 0.76,
-    FFR: 0.15,
-    Count: 2300,
-    height: 431.388473
-  };
+  // Load stations data from full_df_scores.csv
+  Papa.parse('gnss_map_visualization/full_df_scores.csv', {
+    download: true,
+    header: true,
+    dynamicTyping: true,
+    complete: function(results) {
+      const stations = results.data;
 
-  const marker = L.marker([sampleStation.lat, sampleStation.lon])
-    .addTo(map)
-    .bindTooltip(sampleStation.name)
-    .on('click', () => fetchStationPlot(sampleStation.name, sampleStation));
+      stations.forEach(station => {
+        // Make sure station has lat, lon and station name
+        if (!station.lat || !station.lon || !station.Station_Name) return;
+
+        const marker = L.marker([station.lat, station.lon])
+          .addTo(map)
+          .bindTooltip(station.Station_Name)
+          .on('click', () => fetchStationPlot(station.Station_Name, station));
+      });
+    }
+  });
 
   function fetchStationPlot(stationName, station) {
-    Papa.parse(`station_plots/${stationName}.csv`, {
+    // Parse station CSV file inside station_plots folder
+    Papa.parse(`gnss_map_visualization/station_plots/${stationName}.csv`, {
       download: true,
       header: true,
       dynamicTyping: true,
       complete: function(results) {
         const data = results.data;
+
+        // Extract arrays for charts
         const labels = data.map(row => row.Epoch_Time);
         const precip = data.map(row => row.Rolling_Sum);
         const truth = data.map(row => row.true_label);
@@ -93,22 +77,26 @@
         const nn = data.map(row => row.Predicted_nn);
         const xgb = data.map(row => row.Predicted_Binary);
 
-        const html = `
-          <h3 style="margin-bottom: 5px;">Station: ${stationName}</h3>
-          <p>
+        // Create popup content with three canvas charts
+        const popupContent = `
+          <div style="width: 600px;">
+            <strong>${stationName}</strong><br>
             F1: ${station.F1?.toFixed(2)} | TFR: ${station.TFR?.toFixed(2)} | FFR: ${station.FFR?.toFixed(2)}<br>
-            Count: ${station.Count} | Height: ${station.height}
-          </p>
-          <canvas id="precip-${stationName}" height="100"></canvas>
-          <canvas id="truth-${stationName}" height="80"></canvas>
-          <canvas id="models-${stationName}" height="100"></canvas>
+            Count: ${station.Count} | Height: ${station.height}<br><br>
+
+            <canvas id="precip-${stationName}" class="chart-canvas" height="100"></canvas>
+            <canvas id="truth-${stationName}" class="chart-canvas" height="80"></canvas>
+            <canvas id="models-${stationName}" class="chart-canvas" height="100"></canvas>
+          </div>
         `;
 
-        const overlay = document.getElementById('overlay');
-        const overlayContent = document.getElementById('overlay-content');
-        overlayContent.innerHTML = html;
-        overlay.style.display = 'block';
+        // Find marker's lat/lon for popup
+        const popup = L.popup({ maxWidth: 700 })
+          .setLatLng([station.lat, station.lon])
+          .setContent(popupContent)
+          .openOn(map);
 
+        // Delay to ensure canvas elements are added before creating charts
         setTimeout(() => {
           const ctxPrecip = document.getElementById(`precip-${stationName}`).getContext('2d');
           const ctxTruth = document.getElementById(`truth-${stationName}`).getContext('2d');
@@ -127,7 +115,6 @@
               }]
             },
             options: {
-              responsive: true,
               scales: {
                 y: {
                   beginAtZero: true,
@@ -150,7 +137,6 @@
               }]
             },
             options: {
-              responsive: true,
               scales: {
                 y: {
                   min: 0,
@@ -190,7 +176,6 @@
               ]
             },
             options: {
-              responsive: true,
               scales: {
                 y: {
                   min: 0,
@@ -201,10 +186,12 @@
             }
           });
         }, 100);
+      },
+      error: function(err) {
+        alert(`Error loading data for station ${stationName}: ${err.message}`);
       }
     });
   }
 </script>
-
 </body>
 </html>
