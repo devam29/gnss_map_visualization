@@ -2,35 +2,21 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>GNSS Stations Leaflet Map with Plots</title>
+<title>GNSS Stations Map with Plots</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-<!-- Leaflet CSS -->
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-/>
-
-<!-- Chart.js -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-<!-- PapaParse -->
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
 <style>
-  #map {
-    height: 100vh;
-  }
-  .chart-canvas {
-    display: block;
-    width: 100%;
-  }
+  #map { height: 100vh; }
+  .chart-canvas { display: block; width: 100%; }
 </style>
 </head>
 <body>
 <div id="map"></div>
 
-<!-- Leaflet JS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
@@ -40,7 +26,7 @@
     maxZoom: 18,
   }).addTo(map);
 
-  // Load stations data from full_df_scores.csv
+  // Load the stations metadata
   Papa.parse('full_df_scores.csv', {
     download: true,
     header: true,
@@ -49,7 +35,6 @@
       const stations = results.data;
 
       stations.forEach(station => {
-        // Make sure station has lat, lon and station name
         if (!station.lat || !station.lon || !station.Station_Name) return;
 
         const marker = L.marker([station.lat, station.lon])
@@ -57,19 +42,18 @@
           .bindTooltip(station.Station_Name)
           .on('click', () => fetchStationPlot(station.Station_Name, station));
       });
-    }
+    },
+    error: (err) => alert('Failed to load full_df_scores.csv: ' + err.message)
   });
 
   function fetchStationPlot(stationName, station) {
-    // Parse station CSV file inside station_plots folder
-    Papa.parse(`/station_plots/${stationName}.csv`, {
+    Papa.parse(`station_plots/${stationName}.csv`, {
       download: true,
       header: true,
       dynamicTyping: true,
       complete: function(results) {
         const data = results.data;
 
-        // Extract arrays for charts
         const labels = data.map(row => row.Epoch_Time);
         const precip = data.map(row => row.Rolling_Sum);
         const truth = data.map(row => row.true_label);
@@ -77,11 +61,10 @@
         const nn = data.map(row => row.Predicted_nn);
         const xgb = data.map(row => row.Predicted_Binary);
 
-        // Create popup content with three canvas charts
         const popupContent = `
           <div style="width: 600px;">
             <strong>${stationName}</strong><br>
-            F1: ${station.F1?.toFixed(2)} | TFR: ${station.TFR?.toFixed(2)} | FFR: ${station.FFR?.toFixed(2)}<br>
+            F1: ${station.F1?.toFixed(2)} | TFR: ${station.TFR?.toFixed(2)}<br>
             Count: ${station.Count} | Height: ${station.height}<br><br>
 
             <canvas id="precip-${stationName}" class="chart-canvas" height="100"></canvas>
@@ -90,13 +73,11 @@
           </div>
         `;
 
-        // Find marker's lat/lon for popup
         const popup = L.popup({ maxWidth: 700 })
           .setLatLng([station.lat, station.lon])
           .setContent(popupContent)
           .openOn(map);
 
-        // Delay to ensure canvas elements are added before creating charts
         setTimeout(() => {
           const ctxPrecip = document.getElementById(`precip-${stationName}`).getContext('2d');
           const ctxTruth = document.getElementById(`truth-${stationName}`).getContext('2d');
@@ -116,10 +97,7 @@
             },
             options: {
               scales: {
-                y: {
-                  beginAtZero: true,
-                  title: { display: true, text: 'Precipitation (mm)' }
-                }
+                y: { beginAtZero: true, title: { display: true, text: 'Precipitation (mm)' } }
               }
             }
           });
@@ -138,11 +116,7 @@
             },
             options: {
               scales: {
-                y: {
-                  min: 0,
-                  max: 1.2,
-                  title: { display: true, text: 'True Label' }
-                }
+                y: { min: 0, max: 1.2, title: { display: true, text: 'True Label' } }
               }
             }
           });
@@ -152,36 +126,14 @@
             data: {
               labels: labels,
               datasets: [
-                {
-                  label: 'LSTM',
-                  data: lstm,
-                  borderColor: '#9467bd',
-                  fill: false,
-                  stepped: true
-                },
-                {
-                  label: 'NN',
-                  data: nn,
-                  borderColor: '#2ca02c',
-                  fill: false,
-                  stepped: true
-                },
-                {
-                  label: 'XGB',
-                  data: xgb,
-                  borderColor: '#d62728',
-                  fill: false,
-                  stepped: true
-                }
+                { label: 'LSTM', data: lstm, borderColor: '#9467bd', fill: false, stepped: true },
+                { label: 'NN', data: nn, borderColor: '#2ca02c', fill: false, stepped: true },
+                { label: 'XGB', data: xgb, borderColor: '#d62728', fill: false, stepped: true }
               ]
             },
             options: {
               scales: {
-                y: {
-                  min: 0,
-                  max: 1.2,
-                  title: { display: true, text: 'Predicted Labels' }
-                }
+                y: { min: 0, max: 1.2, title: { display: true, text: 'Predicted Labels' } }
               }
             }
           });
