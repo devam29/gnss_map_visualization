@@ -1,186 +1,218 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <title>GNSS Station Viewer</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- Plotly -->
-  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-  <!-- PapaParse for CSV reading -->
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <title>Interactive GNSS Station Map</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
 
-  <style>
-    body, html {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      font-family: Arial, sans-serif;
-    }
-    #map {
-      width: 100%;
-      height: 100%;
-    }
-    /* Graph overlay panel */
-    #graphOverlay {
-      position: absolute;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 90%;
-      height: 90%;
-      background: white;
-      border: 2px solid #444;
-      border-radius: 10px;
-      box-shadow: 0 0 20px rgba(0,0,0,0.3);
-      padding: 15px;
-      z-index: 1000;
-      overflow: auto;
-      display: none;
-    }
-    #closeButton {
-      position: absolute;
-      top: 10px;
-      right: 20px;
-      font-size: 18px;
-      cursor: pointer;
-      background: #f44336;
-      color: white;
-      padding: 5px 12px;
-      border: none;
-      border-radius: 4px;
-    }
-    #plot {
-      margin-top: 50px;
-    }
-    /* Filter Panel (moved to right) */
-    #filterPanel {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: white;
-      padding: 10px;
-      border-radius: 8px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.2);
-      z-index: 500;
-    }
-  </style>
+    <style>
+        #map { width: 100%; height: 100vh; }
+
+        #control-container {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            z-index: 1000;
+            width: 300px;
+        }
+
+        #station-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            border-radius: 10px;
+            padding: 10px;
+            z-index: 1001;
+            width: 450px;
+            max-height: 90vh;
+            overflow-y: auto;
+            display: none;
+        }
+
+        #station-panel h3 {
+            margin-top: 0;
+        }
+
+        .close-button {
+            float: right;
+            cursor: pointer;
+            font-weight: bold;
+            color: red;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 150px !important;
+        }
+    </style>
 </head>
-
 <body>
-  <div id="filterPanel">
-    <label for="stationSelect"><b>Select Station:</b></label><br>
-    <select id="stationSelect">
-      <option value="">-- Choose Station --</option>
-      <option value="Station1">Station1</option>
-      <option value="Station2">Station2</option>
-      <!-- Add more stations -->
-    </select>
-  </div>
 
-  <div id="map"></div>
+<div id="map"></div>
 
-  <div id="graphOverlay">
-    <button id="closeButton">Close</button>
-    <h3 id="stationTitle"></h3>
-    <div id="plot"></div>
-  </div>
+<div id="control-container">
+    <label for="metricSelect">Select Feature:</label><br>
+    <select id="metricSelect">
+        <option value="F1">F1 Score</option>
+        <option value="TFR">TFR</option>
+        <option value="FFR">FFR</option>
+        <option value="MFR">MFR</option>
+        <option value="FRI">FRI</option>
+        <option value="Count">Count</option>
+    </select><br><br>
 
-  <script>
-    // Initialize map
-    var map = L.map('map').setView([50.0, 10.0], 5); // center on Europe
+    <label for="valueSlider">Threshold ≤ <span id="slider-value">1.00</span></label><br>
+    <input type="range" min="0" max="1" value="1" step="0.01" id="valueSlider">
+</div>
 
-    // Add basemap
+<div id="station-panel">
+    <span class="close-button" onclick="document.getElementById('station-panel').style.display='none';">❌</span>
+    <div id="station-info"></div>
+    <div id="charts-container">
+        <canvas id="precipChart"></canvas>
+        <canvas id="trueLabelChart"></canvas>
+        <canvas id="lstmChart"></canvas>
+        <canvas id="nnChart"></canvas>
+        <canvas id="binaryChart"></canvas>
+    </div>
+</div>
+
+<script>
+    const map = L.map('map').setView([46.5, 2.5], 5);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 18
+        attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
-    // Example station data
-    var stations = [
-      { name: 'Station1', lat: 48.8, lon: 9.2 },
-      { name: 'Station2', lat: 52.5, lon: 13.4 }
-    ];
+    const markerGroup = L.layerGroup().addTo(map);
+    let stationData = [];
 
-    // Add markers
-    stations.forEach(station => {
-      var marker = L.marker([station.lat, station.lon]).addTo(map)
-        .bindTooltip(station.name)
-        .on('click', () => showGraph(station.name));
-    });
+    const slider = document.getElementById("valueSlider");
+    const sliderValueDisplay = document.getElementById("slider-value");
+    const metricSelect = document.getElementById("metricSelect");
 
-    // Dropdown selection triggers graph
-    document.getElementById('stationSelect').addEventListener('change', function () {
-      const selected = this.value;
-      if (selected) showGraph(selected);
-    });
-
-    // Close button
-    document.getElementById('closeButton').onclick = () => {
-      document.getElementById('graphOverlay').style.display = 'none';
-    };
-
-    function showGraph(stationName) {
-      document.getElementById('stationTitle').innerText = "Station: " + stationName;
-      document.getElementById('graphOverlay').style.display = 'block';
-
-      const url = `https://raw.githubusercontent.com/devam29/gnss_map_visualization/main/station_plots/${stationName}.csv`; // CHANGE ME
-
-      Papa.parse(url, {
+    Papa.parse("https://raw.githubusercontent.com/devam29/gnss_map_visualization/main/full_df_scores.csv", {
         download: true,
         header: true,
+        dynamicTyping: true,
         complete: function(results) {
-          const data = results.data.filter(row => row['Epoch_Time']);
-          const time = data.map(d => new Date(+d['Epoch_Time'] * 1000));
-          const precipitation = data.map(d => parseFloat(d['Predicted_Binary']) * 0); // dummy zeros if needed
-          const trueLabel = data.map(d => +d['true_label']);
-          const lstm = data.map(d => +d['Predicted_lstm']);
-          const nn = data.map(d => +d['Predicted_nn']);
-          const binary = data.map(d => +d['Predicted_Binary']);
-
-          const layout = {
-            title: false,
-            grid: { rows: 5, columns: 1, pattern: 'independent' },
-            height: 800,
-            showlegend: false,
-            margin: { t: 30, b: 40 }
-          };
-
-          const traces = [
-            {
-              x: time, y: precipitation, type: 'scatter', mode: 'lines',
-              name: 'Precipitation', yaxis: 'y1'
-            },
-            {
-              x: time, y: trueLabel, type: 'scatter', mode: 'lines',
-              name: 'True Label', yaxis: 'y2'
-            },
-            {
-              x: time, y: lstm, type: 'scatter', mode: 'lines',
-              name: 'Predicted LSTM', yaxis: 'y3'
-            },
-            {
-              x: time, y: nn, type: 'scatter', mode: 'lines',
-              name: 'Predicted NN', yaxis: 'y4'
-            },
-            {
-              x: time, y: binary, type: 'scatter', mode: 'lines',
-              name: 'Predicted Binary', yaxis: 'y5'
-            }
-          ];
-
-          const subplotLayout = {
-            grid: { rows: 5, columns: 1, pattern: 'independent' },
-            height: 1000,
-            margin: { t: 20, b: 50 },
-            xaxis5: { tickformat: '%b %d', nticks: 6 }
-          };
-
-          Plotly.newPlot('plot', traces, subplotLayout, { responsive: true });
+            stationData = results.data;
+            updateMarkers();
         }
-      });
+    });
+
+    slider.addEventListener("input", () => {
+        sliderValueDisplay.textContent = parseFloat(slider.value).toFixed(2);
+        updateMarkers();
+    });
+
+    metricSelect.addEventListener("change", () => {
+        const metric = metricSelect.value;
+        if (metric === "Count") {
+            slider.min = 0;
+            slider.max = 5000;
+            slider.step = 100;
+            slider.value = 5000;
+        } else if (metric === "FRI") {
+            slider.min = 0;
+            slider.max = 3;
+            slider.step = 0.01;
+            slider.value = 3;
+        } else {
+            slider.min = 0;
+            slider.max = 1;
+            slider.step = 0.01;
+            slider.value = 1;
+        }
+        sliderValueDisplay.textContent = slider.value;
+        updateMarkers();
+    });
+
+    function updateMarkers() {
+        markerGroup.clearLayers();
+        const threshold = parseFloat(slider.value);
+        const metric = metricSelect.value;
+
+        stationData.forEach(station => {
+            const value = station[metric];
+            if (value !== null && value <= threshold) {
+                const marker = L.circleMarker([station.lat, station.lon], {
+                    radius: 6,
+                    color: getColor(value),
+                    fillColor: getColor(value),
+                    fillOpacity: 0.8,
+                    weight: 1
+                });
+
+                marker.on('click', () => showStationPanel(station));
+                marker.addTo(markerGroup);
+            }
+        });
     }
-  </script>
+
+    function getColor(value) {
+        const max = parseFloat(slider.max);
+        const normalized = Math.min(1, value / max);
+        const r = Math.floor(255 * (1 - normalized));
+        const g = Math.floor(255 * normalized);
+        return `rgb(${r},${g},0)`;
+    }
+
+    function showStationPanel(station) {
+        document.getElementById('station-panel').style.display = 'block';
+        document.getElementById('station-info').innerHTML = `
+            <h3>${station.Station_Name}</h3>
+            <p>F1: ${station.F1?.toFixed(2)}, TFR: ${station.TFR?.toFixed(2)}, FFR: ${station.FFR?.toFixed(2)}<br>
+               MFR: ${station.MFR?.toFixed(2)}, FRI: ${station.FRI?.toFixed(2)}, Count: ${station.Count}</p>
+        `;
+
+        const stationName = station.Station_Name;
+        const url = `https://raw.githubusercontent.com/devam29/gnss_map_visualization/main/station_plots/${stationName}.csv`;
+
+        Papa.parse(url, {
+            download: true,
+            header: true,
+            dynamicTyping: true,
+            complete: function(results) {
+                const data = results.data.filter(d => d.Epoch_Time && !isNaN(d.Epoch_Time));
+                const times = data.map(d => new Date(d.Epoch_Time * 1000));
+                const labels = times.map((t, i) => i % 200 === 0 ? t.toISOString().split('T')[0] : '');
+
+                renderChart('precipChart', 'Precipitation', times, data.map(d => d.Precipitation), 'rgba(0,0,255,0.6)', labels);
+                renderChart('trueLabelChart', 'True Label', times, data.map(d => d.true_label), 'rgba(0,128,0,0.6)', labels);
+                renderChart('lstmChart', 'Predicted LSTM', times, data.map(d => d.Predicted_lstm), 'rgba(255,0,0,0.6)', labels);
+                renderChart('nnChart', 'Predicted NN', times, data.map(d => d.Predicted_nn), 'rgba(255,165,0,0.6)', labels);
+                renderChart('binaryChart', 'Predicted Binary', times, data.map(d => d.Predicted_Binary), 'rgba(128,0,128,0.6)', labels);
+            }
+        });
+    }
+
+    function renderChart(canvasId, title, times, values, color, labels) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        if (window[canvasId]) window[canvasId].destroy();
+        window[canvasId] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{ label: title, data: values, borderColor: color, fill: false, tension: 0 }]
+            },
+            options: {
+                scales: {
+                    x: { ticks: { autoSkip: true, maxTicksLimit: 6 } },
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+    }
+</script>
+
 </body>
 </html>
