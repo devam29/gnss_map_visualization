@@ -150,70 +150,103 @@ function fetchStationPlot(stationName, station) {
                     <strong>${stationName}</strong><br>
                     F1: ${station.F1?.toFixed(2)} | TFR: ${station.TFR?.toFixed(2)}<br>
                     Count: ${station.Count} | Height: ${station.height}<br><br>
-                    <canvas id="plot-${stationName}"></canvas>
+
+                    <div>
+                        <canvas id="precip-${stationName}" height="100"></canvas>
+                        <canvas id="truth-${stationName}" height="80"></canvas>
+                        <canvas id="models-${stationName}" height="100"></canvas>
+                    </div>
                 </div>
             `;
-            const popup = L.popup({ maxWidth: 700 }).setLatLng([station.lat, station.lon]).setContent(html).openOn(map);
+            const popup = L.popup({ maxWidth: 700 })
+                .setLatLng([station.lat, station.lon])
+                .setContent(html)
+                .openOn(map);
 
             setTimeout(() => {
-                const ctx = document.getElementById(`plot-${stationName}`).getContext('2d');
-                new Chart(ctx, {
+                const ctxPrecip = document.getElementById(`precip-${stationName}`).getContext('2d');
+                const ctxTruth = document.getElementById(`truth-${stationName}`).getContext('2d');
+                const ctxModels = document.getElementById(`models-${stationName}`).getContext('2d');
+
+                new Chart(ctxPrecip, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Precipitation',
+                            data: precip,
+                            borderColor: '#1f77b4',
+                            fill: false,
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: 'Precipitation (mm)' }
+                            }
+                        }
+                    }
+                });
+
+                new Chart(ctxTruth, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Ground Truth',
+                            data: truth,
+                            borderColor: '#2e2e2e',
+                            fill: false,
+                            stepped: true
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            y: {
+                                min: 0,
+                                max: 1.2,
+                                title: { display: true, text: 'True Label' }
+                            }
+                        }
+                    }
+                });
+
+                new Chart(ctxModels, {
                     type: 'line',
                     data: {
                         labels: labels,
                         datasets: [
                             {
-                                label: 'Precipitation',
-                                data: precip,
-                                borderColor: '#1f77b4',
-                                yAxisID: 'y1',
-                                fill: false
-                            },
-                            {
-                                label: 'Ground Truth',
-                                data: truth,
-                                borderColor: '#2e2e2e',
-                                yAxisID: 'y2',
-                                stepped: true
-                            },
-                            {
                                 label: 'LSTM',
                                 data: lstm,
                                 borderColor: '#9467bd',
-                                yAxisID: 'y2',
+                                fill: false,
                                 stepped: true
                             },
                             {
                                 label: 'NN',
                                 data: nn,
                                 borderColor: '#2ca02c',
-                                yAxisID: 'y2',
+                                fill: false,
                                 stepped: true
                             },
                             {
                                 label: 'XGB',
                                 data: xgb,
                                 borderColor: '#d62728',
-                                yAxisID: 'y2',
+                                fill: false,
                                 stepped: true
                             }
                         ]
                     },
                     options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
                         scales: {
-                            y1: {
-                                type: 'linear',
-                                position: 'left',
-                                title: { display: true, text: 'Precip (mm)' }
-                            },
-                            y2: {
-                                type: 'linear',
-                                position: 'right',
+                            y: {
                                 min: 0,
                                 max: 1.2,
-                                title: { display: true, text: 'Binary Labels' }
+                                title: { display: true, text: 'Predicted Labels' }
                             }
                         }
                     }
@@ -222,6 +255,7 @@ function fetchStationPlot(stationName, station) {
         }
     });
 }
+
 </script>
 </body>
 </html>
