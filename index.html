@@ -1,217 +1,209 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Interactive GNSS Station Map</title>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+  <meta charset="UTF-8">
+  <title>GNSS Station Plot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <style>
-        #map { width: 100%; height: 100vh; }
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
-        #control-container {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: white;
-            padding: 10px;
-            border-radius: 8px;
-            z-index: 1000;
-            width: 300px;
-        }
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-        #station-panel {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: white;
-            border-radius: 10px;
-            padding: 10px;
-            z-index: 1001;
-            width: 450px;
-            max-height: 90vh;
-            overflow-y: auto;
-            display: none;
-        }
+  <!-- PapaParse for CSV -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
-        #station-panel h3 {
-            margin-top: 0;
-        }
+  <style>
+    #map {
+      height: 100vh;
+    }
 
-        .close-button {
-            float: right;
-            cursor: pointer;
-            font-weight: bold;
-            color: red;
-        }
+    #overlay {
+      display: none;
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 750px;
+      height: 90vh;
+      overflow: auto;
+      background: white;
+      border: 2px solid #333;
+      border-radius: 10px;
+      padding: 20px;
+      z-index: 9999;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.4);
+    }
 
-        canvas {
-            width: 100% !important;
-            height: 150px !important;
-        }
-    </style>
+    #overlay button {
+      float: right;
+      margin-bottom: 10px;
+    }
+  </style>
 </head>
 <body>
 
 <div id="map"></div>
 
-<div id="control-container">
-    <label for="metricSelect">Select Feature:</label><br>
-    <select id="metricSelect">
-        <option value="F1">F1 Score</option>
-        <option value="TFR">TFR</option>
-        <option value="FFR">FFR</option>
-        <option value="MFR">MFR</option>
-        <option value="FRI">FRI</option>
-        <option value="Count">Count</option>
-    </select><br><br>
-
-    <label for="valueSlider">Threshold ≤ <span id="slider-value">1.00</span></label><br>
-    <input type="range" min="0" max="1" value="1" step="0.01" id="valueSlider">
+<!-- Floating overlay panel -->
+<div id="overlay">
+  <button onclick="document.getElementById('overlay').style.display='none'">Close ✖</button>
+  <div id="overlay-content"></div>
 </div>
 
-<div id="station-panel">
-    <span class="close-button" onclick="document.getElementById('station-panel').style.display='none';">❌</span>
-    <div id="station-info"></div>
-    <div id="charts-container">
-        <canvas id="precipChart"></canvas>
-        <canvas id="trueLabelChart"></canvas>
-        <canvas id="lstmChart"></canvas>
-        <canvas id="nnChart"></canvas>
-        <canvas id="binaryChart"></canvas>
-    </div>
-</div>
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
-    const map = L.map('map').setView([46.5, 2.5], 5);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
+  const map = L.map('map').setView([20.0, 78.0], 5);
 
-    const markerGroup = L.layerGroup().addTo(map);
-    let stationData = [];
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18
+  }).addTo(map);
 
-    const slider = document.getElementById("valueSlider");
-    const sliderValueDisplay = document.getElementById("slider-value");
-    const metricSelect = document.getElementById("metricSelect");
+  // Sample station data (replace with your real station coordinates and name)
+  const sampleStation = {
+    name: "0ABI",
+    lat: 68.354344529,
+    lon: 18.816445476000013,
+    F1: 0.82,
+    TFR: 0.76,
+    FFR: 0.15,
+    Count: 2300,
+    height: 431.388473
+  };
 
-    Papa.parse("https://raw.githubusercontent.com/devam29/gnss_map_visualization/main/full_df_scores.csv", {
-        download: true,
-        header: true,
-        dynamicTyping: true,
-        complete: function(results) {
-            stationData = results.data;
-            updateMarkers();
-        }
-    });
+  const marker = L.marker([sampleStation.lat, sampleStation.lon])
+    .addTo(map)
+    .bindTooltip(sampleStation.name)
+    .on('click', () => fetchStationPlot(sampleStation.name, sampleStation));
 
-    slider.addEventListener("input", () => {
-        sliderValueDisplay.textContent = parseFloat(slider.value).toFixed(2);
-        updateMarkers();
-    });
+  function fetchStationPlot(stationName, station) {
+    Papa.parse(`station_plots/${stationName}.csv`, {
+      download: true,
+      header: true,
+      dynamicTyping: true,
+      complete: function(results) {
+        const data = results.data;
+        const labels = data.map(row => row.Epoch_Time);
+        const precip = data.map(row => row.Rolling_Sum);
+        const truth = data.map(row => row.true_label);
+        const lstm = data.map(row => row.Predicted_lstm);
+        const nn = data.map(row => row.Predicted_nn);
+        const xgb = data.map(row => row.Predicted_Binary);
 
-    metricSelect.addEventListener("change", () => {
-        const metric = metricSelect.value;
-        if (metric === "Count") {
-            slider.min = 0;
-            slider.max = 5000;
-            slider.step = 100;
-            slider.value = 5000;
-        } else if (metric === "FRI") {
-            slider.min = 0;
-            slider.max = 3;
-            slider.step = 0.01;
-            slider.value = 3;
-        } else {
-            slider.min = 0;
-            slider.max = 1;
-            slider.step = 0.01;
-            slider.value = 1;
-        }
-        sliderValueDisplay.textContent = slider.value;
-        updateMarkers();
-    });
-
-    function updateMarkers() {
-        markerGroup.clearLayers();
-        const threshold = parseFloat(slider.value);
-        const metric = metricSelect.value;
-
-        stationData.forEach(station => {
-            const value = station[metric];
-            if (value !== null && value <= threshold) {
-                const marker = L.circleMarker([station.lat, station.lon], {
-                    radius: 6,
-                    color: getColor(value),
-                    fillColor: getColor(value),
-                    fillOpacity: 0.8,
-                    weight: 1
-                });
-
-                marker.on('click', () => showStationPanel(station));
-                marker.addTo(markerGroup);
-            }
-        });
-    }
-
-    function getColor(value) {
-        const max = parseFloat(slider.max);
-        const normalized = Math.min(1, value / max);
-        const r = Math.floor(255 * (1 - normalized));
-        const g = Math.floor(255 * normalized);
-        return `rgb(${r},${g},0)`;
-    }
-
-    function showStationPanel(station) {
-        document.getElementById('station-panel').style.display = 'block';
-        document.getElementById('station-info').innerHTML = `
-            <h3>${station.Station_Name}</h3>
-            <p>F1: ${station.F1?.toFixed(2)}, TFR: ${station.TFR?.toFixed(2)}, FFR: ${station.FFR?.toFixed(2)}<br>
-               MFR: ${station.MFR?.toFixed(2)}, FRI: ${station.FRI?.toFixed(2)}, Count: ${station.Count}</p>
+        const html = `
+          <h3 style="margin-bottom: 5px;">Station: ${stationName}</h3>
+          <p>
+            F1: ${station.F1?.toFixed(2)} | TFR: ${station.TFR?.toFixed(2)} | FFR: ${station.FFR?.toFixed(2)}<br>
+            Count: ${station.Count} | Height: ${station.height}
+          </p>
+          <canvas id="precip-${stationName}" height="100"></canvas>
+          <canvas id="truth-${stationName}" height="80"></canvas>
+          <canvas id="models-${stationName}" height="100"></canvas>
         `;
 
-        const stationName = station.Station_Name;
-        const url = `https://raw.githubusercontent.com/devam29/gnss_map_visualization/main/station_plots/${stationName}.csv`;
+        const overlay = document.getElementById('overlay');
+        const overlayContent = document.getElementById('overlay-content');
+        overlayContent.innerHTML = html;
+        overlay.style.display = 'block';
 
-        Papa.parse(url, {
-            download: true,
-            header: true,
-            dynamicTyping: true,
-            complete: function(results) {
-                const data = results.data.filter(d => d.Epoch_Time && !isNaN(d.Epoch_Time));
-                const times = data.map(d => new Date(d.Epoch_Time * 1000));
-                const labels = times.map((t, i) => i % 200 === 0 ? t.toISOString().split('T')[0] : '');
+        setTimeout(() => {
+          const ctxPrecip = document.getElementById(`precip-${stationName}`).getContext('2d');
+          const ctxTruth = document.getElementById(`truth-${stationName}`).getContext('2d');
+          const ctxModels = document.getElementById(`models-${stationName}`).getContext('2d');
 
-                renderChart('precipChart', 'Precipitation', times, data.map(d => d.Precipitation), 'rgba(0,0,255,0.6)', labels);
-                renderChart('trueLabelChart', 'True Label', times, data.map(d => d.true_label), 'rgba(0,128,0,0.6)', labels);
-                renderChart('lstmChart', 'Predicted LSTM', times, data.map(d => d.Predicted_lstm), 'rgba(255,0,0,0.6)', labels);
-                renderChart('nnChart', 'Predicted NN', times, data.map(d => d.Predicted_nn), 'rgba(255,165,0,0.6)', labels);
-                renderChart('binaryChart', 'Predicted Binary', times, data.map(d => d.Predicted_Binary), 'rgba(128,0,128,0.6)', labels);
-            }
-        });
-    }
-
-    function renderChart(canvasId, title, times, values, color, labels) {
-        const ctx = document.getElementById(canvasId).getContext('2d');
-        if (window[canvasId]) window[canvasId].destroy();
-        window[canvasId] = new Chart(ctx, {
+          new Chart(ctxPrecip, {
             type: 'line',
             data: {
-                labels: labels,
-                datasets: [{ label: title, data: values, borderColor: color, fill: false, tension: 0 }]
+              labels: labels,
+              datasets: [{
+                label: 'Precipitation',
+                data: precip,
+                borderColor: '#1f77b4',
+                fill: false,
+                tension: 0.1
+              }]
             },
             options: {
-                scales: {
-                    x: { ticks: { autoSkip: true, maxTicksLimit: 6 } },
-                    y: { beginAtZero: true }
+              responsive: true,
+              scales: {
+                y: {
+                  beginAtZero: true,
+                  title: { display: true, text: 'Precipitation (mm)' }
                 }
+              }
             }
-        });
-    }
+          });
+
+          new Chart(ctxTruth, {
+            type: 'line',
+            data: {
+              labels: labels,
+              datasets: [{
+                label: 'Ground Truth',
+                data: truth,
+                borderColor: '#2e2e2e',
+                fill: false,
+                stepped: true
+              }]
+            },
+            options: {
+              responsive: true,
+              scales: {
+                y: {
+                  min: 0,
+                  max: 1.2,
+                  title: { display: true, text: 'True Label' }
+                }
+              }
+            }
+          });
+
+          new Chart(ctxModels, {
+            type: 'line',
+            data: {
+              labels: labels,
+              datasets: [
+                {
+                  label: 'LSTM',
+                  data: lstm,
+                  borderColor: '#9467bd',
+                  fill: false,
+                  stepped: true
+                },
+                {
+                  label: 'NN',
+                  data: nn,
+                  borderColor: '#2ca02c',
+                  fill: false,
+                  stepped: true
+                },
+                {
+                  label: 'XGB',
+                  data: xgb,
+                  borderColor: '#d62728',
+                  fill: false,
+                  stepped: true
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              scales: {
+                y: {
+                  min: 0,
+                  max: 1.2,
+                  title: { display: true, text: 'Predicted Labels' }
+                }
+              }
+            }
+          });
+        }, 100);
+      }
+    });
+  }
 </script>
 
 </body>
