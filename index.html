@@ -53,14 +53,40 @@
             color: #2c3e50;
         }
         .chart-container {
-            width: 600px;
-            height: 150px;
-            margin-bottom: 10px;
+            width: 100%;
+            height: 120px;
+            margin-bottom: 5px;
+        }
+        .popup-content {
+            width: 95%;
+            max-width: 600px;
+            padding: 10px;
         }
         .popup-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-top: 0;
             border-bottom: 1px solid #eee;
             padding-bottom: 10px;
+        }
+        .close-btn {
+            cursor: pointer;
+            font-size: 20px;
+            font-weight: bold;
+            color: #777;
+        }
+        .close-btn:hover {
+            color: #333;
+        }
+        @media (max-width: 600px) {
+            #control-container {
+                width: 250px;
+                font-size: 14px;
+            }
+            .chart-container {
+                height: 100px;
+            }
         }
     </style>
 </head>
@@ -98,6 +124,7 @@
 
     const markerGroup = L.layerGroup().addTo(map);
     let stationData = [];
+    let currentPopup = null;
 
     const slider = document.getElementById("valueSlider");
     const sliderValueDisplay = document.getElementById("slider-value");
@@ -210,12 +237,24 @@
                 
                 const data = results.data;
                 const html = createPopupHTML(station, data);
-                const popup = L.popup({ maxWidth: 650 })
+                
+                // Close any existing popup
+                if (currentPopup) {
+                    map.closePopup(currentPopup);
+                }
+                
+                currentPopup = L.popup({ maxWidth: 650, maxHeight: 600 })
                     .setLatLng([station.lat, station.lon])
                     .setContent(html)
                     .openOn(map);
                 
-                setTimeout(() => renderAllCharts(stationName, data), 50);
+                setTimeout(() => {
+                    renderAllCharts(stationName, data);
+                    // Add event listener to close button
+                    document.querySelector('.close-btn').addEventListener('click', () => {
+                        map.closePopup(currentPopup);
+                    });
+                }, 50);
             },
             error: function(error) {
                 showError(`Failed to load data for station ${stationName}`);
@@ -225,15 +264,12 @@
     }
 
     function createPopupHTML(station, data) {
-        // Sample every 5th point for cleaner labels
-        const sampleFactor = Math.max(1, Math.floor(data.length / 20));
-        const sampledLabels = data
-            .filter((_, i) => i % sampleFactor === 0)
-            .map(row => row.Epoch_Time);
-        
         return `
-            <div style="width: 600px; padding: 10px;">
-                <h3 class="popup-header">${station.Station_Name}</h3>
+            <div class="popup-content">
+                <div class="popup-header">
+                    <h3 style="margin: 0;">${station.Station_Name}</h3>
+                    <span class="close-btn">&times;</span>
+                </div>
                 <p>
                     <strong>Location:</strong> ${station.lat?.toFixed(4)}, ${station.lon?.toFixed(4)}<br>
                     <strong>F1:</strong> ${station.F1?.toFixed(2) || 'N/A'} | 
@@ -265,60 +301,122 @@
     }
 
     function renderAllCharts(stationName, data) {
-        // Sample data points for cleaner x-axis labels
-        const sampleFactor = Math.max(1, Math.floor(data.length / 20));
-        const sampledData = data.filter((_, i) => i % sampleFactor === 0);
-        const labels = sampledData.map(row => row.Epoch_Time);
-        
-        // Precipitation Chart (Top)
+        // Precipitation Chart (continuous)
         renderChart(
             `precip-chart-${stationName}`,
             "Precipitation",
-            sampledData.map(row => row.Rolling_Sum),
+            data.map(row => row.Rolling_Sum),
             '#3498db',
-            'Precipitation (mm)',
+            'mm',
             false
         );
         
-        // Ground Truth Chart
-        renderChart(
+        // Binary Charts (vertical lines only)
+        renderBinaryChart(
             `truth-chart-${stationName}`,
             "Ground Truth",
-            sampledData.map(row => row.true_label),
-            '#2c3e50',
-            'Ground Truth',
-            true
+            data.map(row => row.true_label),
+            '#2c3e50'
         );
         
-        // LSTM Chart
-        renderChart(
+        renderBinaryChart(
             `lstm-chart-${stationName}`,
             "LSTM Predictions",
-            sampledData.map(row => row.Predicted_lstm),
-            '#e74c3c',
-            'LSTM',
-            true
+            data.map(row => row.Predicted_lstm),
+            '#e74c3c'
         );
         
-        // UNet Chart
-        renderChart(
+        renderBinaryChart(
             `unet-chart-${stationName}`,
             "UNet Predictions",
-            sampledData.map(row => row.Predicted_nn),
-            '#27ae60',
-            'UNet',
-            true
+            data.map(row => row.Predicted_nn),
+            '#27ae60'
         );
         
-        // XGBoost Chart (Bottom)
-        renderChart(
+        renderBinaryChart(
             `xgb-chart-${stationName}`,
             "XGBoost Predictions",
-            sampledData.map(row => row.Predicted_Binary),
-            '#f39c12',
-            'XGBoost',
-            true
+            data.map(row => row.Predicted_Binary),
+            '#f39c12'
         );
+    }
+
+    function renderBinaryChart(canvasId, label, data, color) {
+        try {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            
+            // Convert binary data to vertical line segments
+            const lineSegments = [];
+            let segmentStart = null;
+            
+            for (let i = 0; i < data.length; i++) {
+                if (data[i] === 1) {
+                    if (segmentStart === null) segmentStart = i;
+                } else {
+                    if (segmentStart !== null) {
+                        lineSegments.push({start: segmentStart, end: i-1});
+                        segmentStart = null;
+                    }
+                }
+            }
+            
+            // Handle case where segment continues to end
+            if (segmentStart !== null) {
+                lineSegments.push({start: segmentStart, end: data.length-1});
+            }
+            
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map((_, i) => i),
+                    datasets: [{
+                        label: label,
+                        data: data.map((val, i) => {
+                            // Only show points where value changes
+                            if (i === 0 || val !== data[i-1]) return val;
+                            return NaN;
+                        }),
+                        borderColor: color,
+                        backgroundColor: color + '20',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        stepped: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            display: false
+                        },
+                        y: {
+                            display: true,
+                            min: -0.1,
+                            max: 1.1,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${label}: ${context.parsed.y === 1 ? 'Active' : 'Inactive'}`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error(`Error rendering ${canvasId}:`, error);
+        }
     }
 
     function renderChart(canvasId, label, data, color, yLabel, isBinary) {
@@ -327,7 +425,7 @@
             new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: data.map((_, i) => i), // Use indices for cleaner x-axis
+                    labels: data.map((_, i) => i),
                     datasets: [{
                         label: label,
                         data: data,
@@ -336,7 +434,7 @@
                         borderWidth: 1,
                         pointRadius: 0,
                         fill: false,
-                        tension: isBinary ? 0 : 0.1
+                        tension: 0.1
                     }]
                 },
                 options: {
@@ -344,22 +442,14 @@
                     maintainAspectRatio: false,
                     scales: {
                         x: {
-                            display: true,
-                            ticks: {
-                                callback: function(val, index) {
-                                    // Only show every 5th label
-                                    return index % 5 === 0 ? this.getLabelForValue(val) : '';
-                                }
-                            }
+                            display: false
                         },
                         y: {
                             display: true,
                             title: {
                                 display: true,
                                 text: yLabel
-                            },
-                            min: isBinary ? 0 : Math.min(...data) * 0.9,
-                            max: isBinary ? 1.2 : Math.max(...data) * 1.1
+                            }
                         }
                     },
                     plugins: {
