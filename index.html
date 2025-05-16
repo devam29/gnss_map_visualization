@@ -1,10 +1,9 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Interactive GNSS Station Map</title>
+    <title>GNSS Station Analysis</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Map CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body {
@@ -25,7 +24,7 @@
             width: 300px;
             position: absolute;
             top: 10px;
-            left: 10px;
+            right: 10px;
             z-index: 1000;
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }
@@ -53,13 +52,21 @@
             font-weight: bold;
             color: #2c3e50;
         }
+        .chart-container {
+            width: 600px;
+            height: 150px;
+            margin-bottom: 10px;
+        }
+        .popup-header {
+            margin-top: 0;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
     </style>
 </head>
 <body>
-    <!-- Loading message (will disappear when map loads) -->
     <div id="loading">Loading map and station data...</div>
     
-    <!-- Control panel -->
     <div id="control-container">
         <label for="metricSelect">Select Metric:</label>
         <select id="metricSelect" class="form-control">
@@ -75,37 +82,29 @@
         <input type="range" min="0" max="1" value="1" step="0.01" id="valueSlider">
     </div>
 
-    <!-- Map container -->
     <div id="map"></div>
 
-    <!-- JavaScript Libraries -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
 
-    <!-- Main Application Script -->
     <script>
-    // Debugging - shows script is running
     console.log("Starting GNSS Map Visualization");
     
-    // Initialize map
     const map = L.map('map').setView([46.5, 8.2], 7);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
-    // Create layer for station markers
     const markerGroup = L.layerGroup().addTo(map);
     let stationData = [];
 
-    // Get DOM elements
     const slider = document.getElementById("valueSlider");
     const sliderValueDisplay = document.getElementById("slider-value");
     const metricSelect = document.getElementById("metricSelect");
     const loadingElement = document.getElementById("loading");
 
-    // Load station data from CSV
-    console.log("Loading station data from full_df_scores.csv");
+    // Load station data
     Papa.parse("full_df_scores.csv", {
         download: true,
         header: true,
@@ -116,7 +115,7 @@
                 return;
             }
             
-            console.log(`Successfully loaded ${results.data.length} stations`);
+            console.log(`Loaded ${results.data.length} stations`);
             stationData = results.data;
             updateMarkers();
             loadingElement.style.display = "none";
@@ -127,17 +126,14 @@
         }
     });
 
-    // Update slider display value
     slider.addEventListener("input", () => {
         sliderValueDisplay.textContent = parseFloat(slider.value).toFixed(2);
         updateMarkers();
     });
 
-    // Handle metric selection changes
     metricSelect.addEventListener("change", () => {
         const metric = metricSelect.value;
         
-        // Adjust slider ranges based on metric
         if (metric === "Count") {
             slider.min = 0;
             slider.max = 5000;
@@ -159,7 +155,6 @@
         updateMarkers();
     });
 
-    // Update markers on map based on current selections
     function updateMarkers() {
         markerGroup.clearLayers();
         const threshold = parseFloat(slider.value);
@@ -191,7 +186,6 @@
         });
     }
 
-    // Get color based on value (green to red gradient)
     function getColor(value) {
         const max = parseFloat(slider.max);
         const normalized = Math.min(1, value / max);
@@ -200,7 +194,6 @@
         return `rgb(${r},${g},0)`;
     }
 
-    // Show station details in popup
     function showStationDetails(station) {
         const stationName = station.Station_Name;
         console.log(`Loading details for station: ${stationName}`);
@@ -222,8 +215,7 @@
                     .setContent(html)
                     .openOn(map);
                 
-                // Render chart after popup is displayed
-                setTimeout(() => renderStationChart(stationName, data), 50);
+                setTimeout(() => renderAllCharts(stationName, data), 50);
             },
             error: function(error) {
                 showError(`Failed to load data for station ${stationName}`);
@@ -232,99 +224,157 @@
         });
     }
 
-    // Create HTML content for station popup
     function createPopupHTML(station, data) {
+        // Sample every 5th point for cleaner labels
+        const sampleFactor = Math.max(1, Math.floor(data.length / 20));
+        const sampledLabels = data
+            .filter((_, i) => i % sampleFactor === 0)
+            .map(row => row.Epoch_Time);
+        
         return `
             <div style="width: 600px; padding: 10px;">
-                <h3 style="margin-top: 0;">${station.Station_Name}</h3>
+                <h3 class="popup-header">${station.Station_Name}</h3>
                 <p>
                     <strong>Location:</strong> ${station.lat?.toFixed(4)}, ${station.lon?.toFixed(4)}<br>
-                    <strong>F1 Score:</strong> ${station.F1?.toFixed(2) || 'N/A'} | 
-                    <strong>TFR:</strong> ${station.TFR?.toFixed(2) || 'N/A'}<br>
-                    <strong>Events:</strong> ${station.Count || 'N/A'} | 
-                    <strong>Height:</strong> ${station.height || 'N/A'}m
+                    <strong>F1:</strong> ${station.F1?.toFixed(2) || 'N/A'} | 
+                    <strong>TFR:</strong> ${station.TFR?.toFixed(2) || 'N/A'} | 
+                    <strong>Count:</strong> ${station.Count || 'N/A'}
                 </p>
-                <canvas id="chart-${station.Station_Name}" height="300"></canvas>
+                
+                <div class="chart-container">
+                    <canvas id="precip-chart-${station.Station_Name}"></canvas>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="truth-chart-${station.Station_Name}"></canvas>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="lstm-chart-${station.Station_Name}"></canvas>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="unet-chart-${station.Station_Name}"></canvas>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="xgb-chart-${station.Station_Name}"></canvas>
+                </div>
             </div>
         `;
     }
 
-    // Render chart for station data
-    function renderStationChart(stationName, data) {
+    function renderAllCharts(stationName, data) {
+        // Sample data points for cleaner x-axis labels
+        const sampleFactor = Math.max(1, Math.floor(data.length / 20));
+        const sampledData = data.filter((_, i) => i % sampleFactor === 0);
+        const labels = sampledData.map(row => row.Epoch_Time);
+        
+        // Precipitation Chart (Top)
+        renderChart(
+            `precip-chart-${stationName}`,
+            "Precipitation",
+            sampledData.map(row => row.Rolling_Sum),
+            '#3498db',
+            'Precipitation (mm)',
+            false
+        );
+        
+        // Ground Truth Chart
+        renderChart(
+            `truth-chart-${stationName}`,
+            "Ground Truth",
+            sampledData.map(row => row.true_label),
+            '#2c3e50',
+            'Ground Truth',
+            true
+        );
+        
+        // LSTM Chart
+        renderChart(
+            `lstm-chart-${stationName}`,
+            "LSTM Predictions",
+            sampledData.map(row => row.Predicted_lstm),
+            '#e74c3c',
+            'LSTM',
+            true
+        );
+        
+        // UNet Chart
+        renderChart(
+            `unet-chart-${stationName}`,
+            "UNet Predictions",
+            sampledData.map(row => row.Predicted_nn),
+            '#27ae60',
+            'UNet',
+            true
+        );
+        
+        // XGBoost Chart (Bottom)
+        renderChart(
+            `xgb-chart-${stationName}`,
+            "XGBoost Predictions",
+            sampledData.map(row => row.Predicted_Binary),
+            '#f39c12',
+            'XGBoost',
+            true
+        );
+    }
+
+    function renderChart(canvasId, label, data, color, yLabel, isBinary) {
         try {
-            const ctx = document.getElementById(`chart-${stationName}`).getContext('2d');
+            const ctx = document.getElementById(canvasId).getContext('2d');
             new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: data.map(row => row.Epoch_Time),
-                    datasets: [
-                        {
-                            label: 'Precipitation',
-                            data: data.map(row => row.Rolling_Sum),
-                            borderColor: '#3498db',
-                            backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                            yAxisID: 'y',
-                            fill: true,
-                            tension: 0.1
-                        },
-                        {
-                            label: 'Ground Truth',
-                            data: data.map(row => row.true_label),
-                            borderColor: '#2c3e50',
-                            backgroundColor: 'rgba(44, 62, 80, 0.1)',
-                            yAxisID: 'y1',
-                            stepped: true
-                        },
-                        {
-                            label: 'Model Predictions',
-                            data: data.map(row => row.Predicted_lstm),
-                            borderColor: '#e74c3c',
-                            backgroundColor: 'rgba(231, 76, 60, 0.1)',
-                            yAxisID: 'y1',
-                            stepped: true
-                        }
-                    ]
+                    labels: data.map((_, i) => i), // Use indices for cleaner x-axis
+                    datasets: [{
+                        label: label,
+                        data: data,
+                        borderColor: color,
+                        backgroundColor: color + '20',
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        fill: false,
+                        tension: isBinary ? 0 : 0.1
+                    }]
                 },
                 options: {
                     responsive: true,
-                    interaction: {
-                        mode: 'index',
-                        intersect: false
-                    },
+                    maintainAspectRatio: false,
                     scales: {
-                        y: {
-                            type: 'linear',
+                        x: {
                             display: true,
-                            position: 'left',
-                            title: {
-                                display: true,
-                                text: 'Precipitation (mm)'
+                            ticks: {
+                                callback: function(val, index) {
+                                    // Only show every 5th label
+                                    return index % 5 === 0 ? this.getLabelForValue(val) : '';
+                                }
                             }
                         },
-                        y1: {
-                            type: 'linear',
+                        y: {
                             display: true,
-                            position: 'right',
-                            min: 0,
-                            max: 1.2,
-                            grid: {
-                                drawOnChartArea: false
-                            },
                             title: {
                                 display: true,
-                                text: 'Events'
-                            }
+                                text: yLabel
+                            },
+                            min: isBinary ? 0 : Math.min(...data) * 0.9,
+                            max: isBinary ? 1.2 : Math.max(...data) * 1.1
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
                         }
                     }
                 }
             });
-            console.log(`Chart rendered for ${stationName}`);
         } catch (error) {
-            console.error("Chart rendering error:", error);
+            console.error(`Error rendering ${canvasId}:`, error);
         }
     }
 
-    // Show error message
     function showError(message) {
         loadingElement.innerHTML = `
             <div style="color: red;">
