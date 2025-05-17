@@ -490,7 +490,7 @@
             'var(--primary-color)'
         );
         
-        // Ground Truth Chart
+        // Ground Truth Chart (now properly handles float values)
         renderBinaryChart(
             `truth-chart-${stationName}`,
             "Ground Truth",
@@ -499,7 +499,7 @@
             'var(--secondary-color)'
         );
         
-        // Model Charts
+        // Model Charts (also handle float predictions)
         renderBinaryChart(
             `lstm-chart-${stationName}`,
             "LSTM Predictions",
@@ -535,10 +535,10 @@
             }
             
             modelMap[row.Epoch_Time] = {
-                truth: row.true_label,
-                lstm: row.Predicted_lstm,
-                unet: row.Predicted_nn,
-                xgb: row.Predicted_Binary
+                truth: parseFloat(row.true_label),
+                lstm: parseFloat(row.Predicted_lstm),
+                unet: parseFloat(row.Predicted_nn),
+                xgb: parseFloat(row.Predicted_Binary)
             };
         });
         
@@ -561,7 +561,7 @@
             const modelEntry = modelMap[precip.Epoch_Time];
             if (modelEntry) {
                 result.times.push(precip.Epoch_Time);
-                result.precipValues.push(precip.Rolling_Sum);
+                result.precipValues.push(parseFloat(precip.Rolling_Sum));
                 result.truthValues.push(modelEntry.truth);
                 result.lstmValues.push(modelEntry.lstm);
                 result.unetValues.push(modelEntry.unet);
@@ -604,7 +604,52 @@
                         tension: 0.1
                     }]
                 },
-                options: getChartOptions('Precipitation (mm)', false)
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            display: true,
+                            ticks: {
+                                autoSkip: true,
+                                maxTicksLimit: 10,
+                                maxRotation: 0,
+                                font: {
+                                    size: 10
+                                }
+                            }
+                        },
+                        y: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'Precipitation (mm)',
+                                font: {
+                                    size: 12
+                                }
+                            },
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: {
+                                    size: 12
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${label}: ${context.parsed.y?.toFixed(3)} mm`;
+                                }
+                            }
+                        }
+                    }
+                }
             });
         } catch (error) {
             console.error(`Error rendering precipitation chart:`, error);
@@ -615,14 +660,24 @@
         try {
             const ctx = document.getElementById(canvasId).getContext('2d');
             
-            // Convert to stepped line data
+            // Process float values to create proper stepped lines
             const steppedData = [];
-            let currentValue = null;
+            let currentState = null;
             
+            // First identify all transition points
+            const transitions = [];
             for (let i = 0; i < values.length; i++) {
-                if (values[i] !== currentValue) {
-                    steppedData.push(values[i]);
-                    currentValue = values[i];
+                const binaryVal = values[i] > 0.5 ? 1 : 0;
+                if (binaryVal !== currentState) {
+                    transitions.push(i);
+                    currentState = binaryVal;
+                }
+            }
+            
+            // Create data with points only at transitions
+            for (let i = 0; i < values.length; i++) {
+                if (transitions.includes(i)) {
+                    steppedData.push(values[i] > 0.5 ? 1 : 0);
                 } else {
                     steppedData.push(NaN);
                 }
@@ -639,84 +694,66 @@
                         backgroundColor: color.replace(')', ', 0.1)'),
                         borderWidth: 2,
                         pointRadius: 0,
-                        stepped: true
+                        stepped: true,
+                        spanGaps: false
                     }]
                 },
-                options: getChartOptions('Status', true)
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            display: true,
+                            ticks: {
+                                autoSkip: true,
+                                maxTicksLimit: 10,
+                                maxRotation: 0,
+                                font: {
+                                    size: 10
+                                }
+                            }
+                        },
+                        y: {
+                            display: true,
+                            min: -0.1,
+                            max: 1.1,
+                            ticks: {
+                                callback: function(value) {
+                                    if (value === 1) return 'Active';
+                                    if (value === 0) return 'Inactive';
+                                    return '';
+                                },
+                                font: {
+                                    size: 10
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: {
+                                    size: 12
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const val = context.parsed.y;
+                                    return `${label}: ${val > 0.5 ? 'Active' : 'Inactive'} (${val?.toFixed(2)})`;
+                                }
+                            }
+                        }
+                    }
+                }
             });
+            
         } catch (error) {
             console.error(`Error rendering ${label} chart:`, error);
         }
-    }
-
-    function getChartOptions(yTitle, isBinary) {
-        return {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: {
-                duration: 500
-            },
-            scales: {
-                x: {
-                    display: true,
-                    grid: {
-                        display: false
-                    },
-                    ticks: {
-                        autoSkip: true,
-                        maxTicksLimit: 10,
-                        maxRotation: 0,
-                        font: {
-                            size: 10
-                        }
-                    }
-                },
-                y: {
-                    display: true,
-                    title: {
-                        display: true,
-                        text: yTitle,
-                        font: {
-                            size: 12
-                        }
-                    },
-                    min: isBinary ? -0.1 : undefined,
-                    max: isBinary ? 1.1 : undefined,
-                    ticks: {
-                        stepSize: isBinary ? 1 : undefined,
-                        callback: isBinary ? function(value) {
-                            return value === 1 ? 'Active' : value === 0 ? 'Inactive' : '';
-                        } : undefined,
-                        font: {
-                            size: 10
-                        }
-                    }
-                }
-            },
-            plugins: {
-                legend: {
-                    display: true,
-                    position: 'top',
-                    labels: {
-                        font: {
-                            size: 12
-                        },
-                        boxWidth: 12,
-                        padding: 10
-                    }
-                },
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            if (isBinary) {
-                                return `${context.dataset.label}: ${context.parsed.y === 1 ? 'Active' : 'Inactive'}`;
-                            }
-                            return `${context.dataset.label}: ${context.parsed.y?.toFixed(2) || 'N/A'}`;
-                        }
-                    }
-                }
-            }
-        };
     }
 
     function showError(message) {
