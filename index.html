@@ -615,14 +615,28 @@
         try {
             const ctx = document.getElementById(canvasId).getContext('2d');
             
-            // Convert to stepped line data
+            // Convert float values to proper stepped line data
             const steppedData = [];
             let currentValue = null;
             
+            // First pass: identify all transitions
+            const transitions = [];
             for (let i = 0; i < values.length; i++) {
-                if (values[i] !== currentValue) {
-                    steppedData.push(values[i]);
-                    currentValue = values[i];
+                const val = values[i];
+                // Consider values > 0.5 as 1, <= 0.5 as 0
+                const binaryVal = val > 0.5 ? 1 : 0;
+                
+                if (binaryVal !== currentValue) {
+                    transitions.push(i);
+                    currentValue = binaryVal;
+                }
+            }
+            
+            // Second pass: create stepped data
+            for (let i = 0; i < values.length; i++) {
+                // Show point at every transition
+                if (transitions.includes(i)) {
+                    steppedData.push(values[i] > 0.5 ? 1 : 0);
                 } else {
                     steppedData.push(NaN);
                 }
@@ -639,11 +653,49 @@
                         backgroundColor: color.replace(')', ', 0.1)'),
                         borderWidth: 2,
                         pointRadius: 0,
-                        stepped: true
+                        stepped: true,
+                        spanGaps: false
                     }]
                 },
-                options: getChartOptions('Status', true)
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            display: true,
+                            ticks: {
+                                autoSkip: true,
+                                maxTicksLimit: 10
+                            }
+                        },
+                        y: {
+                            display: true,
+                            min: -0.1,
+                            max: 1.1,
+                            ticks: {
+                                callback: function(value) {
+                                    if (value === 1) return 'Active';
+                                    if (value === 0) return 'Inactive';
+                                    return '';
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.parsed.y > 0.5 ? 'Active' : 'Inactive'}`;
+                                }
+                            }
+                        }
+                    }
+                }
             });
+            
         } catch (error) {
             console.error(`Error rendering ${label} chart:`, error);
         }
