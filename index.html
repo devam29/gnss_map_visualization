@@ -659,30 +659,10 @@
     function renderBinaryChart(canvasId, label, labels, values, color) {
         try {
             const ctx = document.getElementById(canvasId).getContext('2d');
-            
-            // Process float values to create proper stepped lines
-            const steppedData = [];
-            let currentState = null;
-            
-            // First identify all transition points
-            const transitions = [];
-            for (let i = 0; i < values.length; i++) {
-                const binaryVal = values[i] > 0.5 ? 1 : 0;
-                if (binaryVal !== currentState) {
-                    transitions.push(i);
-                    currentState = binaryVal;
-                }
-            }
-            
-            // Create data with points only at transitions
-            for (let i = 0; i < values.length; i++) {
-                if (transitions.includes(i)) {
-                    steppedData.push(values[i] > 0.5 ? 1 : 0);
-                } else {
-                    steppedData.push(NaN);
-                }
-            }
-            
+    
+            // Convert values to binary (0 or 1) based on threshold
+            const steppedData = values.map(v => (v > 0.5 ? 1 : 0));
+    
             new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -750,11 +730,12 @@
                     }
                 }
             });
-            
+    
         } catch (error) {
             console.error(`Error rendering ${label} chart:`, error);
         }
     }
+
 
     function showError(message) {
         loadingElement.style.display = "block";
