@@ -490,7 +490,7 @@
             'var(--primary-color)'
         );
         
-        // Ground Truth Chart (now properly handles float values)
+        // Ground Truth Chart (fixed to show all active states)
         renderBinaryChart(
             `truth-chart-${stationName}`,
             "Ground Truth",
@@ -499,7 +499,7 @@
             'var(--secondary-color)'
         );
         
-        // Model Charts (also handle float predictions)
+        // Model Charts
         renderBinaryChart(
             `lstm-chart-${stationName}`,
             "LSTM Predictions",
@@ -659,22 +659,22 @@
     function renderBinaryChart(canvasId, label, labels, values, color) {
         try {
             const ctx = document.getElementById(canvasId).getContext('2d');
-    
-            // Convert values to binary (0 or 1) based on threshold
-            const steppedData = values.map(v => (v > 0.5 ? 1 : 0));
-    
+            
+            // Create display values - show 1 for active states (value > 0.5), NaN otherwise
+            const displayValues = values.map(val => val > 0.5 ? 1 : NaN);
+            
             new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: labels,
                     datasets: [{
                         label: label,
-                        data: steppedData,
+                        data: displayValues,
                         borderColor: color,
                         backgroundColor: color.replace(')', ', 0.1)'),
                         borderWidth: 2,
                         pointRadius: 0,
-                        stepped: true,
+                        stepped: 'after',
                         spanGaps: false
                     }]
                 },
@@ -722,7 +722,7 @@
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
-                                    const val = context.parsed.y;
+                                    const val = values[context.dataIndex];
                                     return `${label}: ${val > 0.5 ? 'Active' : 'Inactive'} (${val?.toFixed(2)})`;
                                 }
                             }
@@ -730,12 +730,11 @@
                     }
                 }
             });
-    
+            
         } catch (error) {
             console.error(`Error rendering ${label} chart:`, error);
         }
     }
-
 
     function showError(message) {
         loadingElement.style.display = "block";
