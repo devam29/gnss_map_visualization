@@ -3,7 +3,7 @@
 <head>
     <title>GNSS Station Analysis</title>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         :root {
@@ -21,6 +21,7 @@
             padding: 0;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: var(--light-gray);
+            touch-action: pan-x pan-y;
         }
         
         #map { 
@@ -31,10 +32,10 @@
         
         #control-container {
             margin: 10px;
-            padding: 20px;
+            padding: 15px;
             background-color: white;
             border-radius: 10px;
-            width: 320px;
+            width: 280px;
             position: absolute;
             top: 10px;
             right: 10px;
@@ -49,90 +50,98 @@
             left: 50%;
             transform: translate(-50%, -50%);
             background: white;
-            padding: 30px;
+            padding: 20px;
             border-radius: 10px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             z-index: 500;
             text-align: center;
-            max-width: 80%;
+            max-width: 90%;
+            width: 300px;
         }
         
         .control-title {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 600;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
             color: var(--secondary-color);
             border-bottom: 1px solid #eee;
-            padding-bottom: 10px;
+            padding-bottom: 8px;
         }
         
         label {
             font-weight: 500;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             display: block;
             color: var(--dark-gray);
-            font-size: 14px;
+            font-size: 13px;
         }
         
         select {
             width: 100%;
-            margin-bottom: 15px;
-            padding: 8px 12px;
+            margin-bottom: 12px;
+            padding: 8px;
             border-radius: 4px;
             border: 1px solid #ddd;
             background-color: white;
-            font-size: 14px;
+            font-size: 13px;
+            height: 36px;
         }
         
         input[type="range"] {
             width: 100%;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
         
         #slider-value {
             font-weight: 600;
             color: var(--primary-color);
-            font-size: 14px;
+            font-size: 13px;
         }
         
         .chart-container {
             width: 100%;
-            height: 140px;
-            margin-bottom: 10px;
+            height: 100px;
+            margin-bottom: 8px;
             background-color: white;
             border-radius: 6px;
-            padding: 10px;
+            padding: 8px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
         
         .popup-content {
-            width: 95%;
-            max-width: 650px;
-            padding: 15px;
+            width: 95vw;
+            max-width: 95vw;
+            padding: 10px;
             background-color: white;
-            border-radius: 10px;
+            border-radius: 8px;
+            max-height: 80vh;
+            overflow-y: auto;
         }
         
         .popup-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
             border-bottom: 1px solid #eee;
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 10;
         }
         
         .popup-title {
             margin: 0;
-            font-size: 20px;
+            font-size: 16px;
             font-weight: 600;
             color: var(--secondary-color);
         }
         
         .station-info {
-            margin-bottom: 15px;
-            font-size: 14px;
-            line-height: 1.5;
+            margin-bottom: 10px;
+            font-size: 13px;
+            line-height: 1.4;
             color: var(--dark-gray);
         }
         
@@ -142,49 +151,47 @@
         
         .close-btn {
             cursor: pointer;
-            font-size: 24px;
+            font-size: 22px;
             font-weight: bold;
             color: #777;
             line-height: 1;
             padding: 0 5px;
+            background: none;
+            border: none;
         }
         
         .close-btn:hover {
             color: var(--danger-color);
         }
         
-        @media (max-width: 768px) {
-            #control-container {
-                width: 280px;
-                padding: 15px;
-            }
-            
-            .chart-container {
-                height: 120px;
-            }
-        }
-        
+        /* Mobile-specific styles */
         @media (max-width: 480px) {
             #control-container {
-                width: 240px;
-                font-size: 13px;
-            }
-            
-            .popup-content {
-                max-width: 95vw;
+                width: 85%;
+                right: 50%;
+                transform: translateX(50%);
+                padding: 12px;
             }
             
             .chart-container {
-                height: 100px;
+                height: 80px;
+                padding: 6px;
+            }
+            
+            .popup-title {
+                font-size: 15px;
+            }
+            
+            .station-info {
+                font-size: 12px;
             }
         }
     </style>
 </head>
 <body>
     <div id="loading">
-        <h3>Loading GNSS Station Data</h3>
+        <h3 style="margin-top: 0;">Loading GNSS Station Data</h3>
         <p>Please wait while we load the station information...</p>
-        <div class="spinner"></div>
     </div>
     
     <div id="control-container">
@@ -199,7 +206,7 @@
             <option value="Count">Event Count</option>
         </select>
 
-        <label for="valueSlider">Display Threshold: ≤ <span id="slider-value">1.00</span></label>
+        <label for="valueSlider">Threshold: ≤ <span id="slider-value">1.00</span></label>
         <input type="range" min="0" max="1" value="1" step="0.01" id="valueSlider">
     </div>
 
@@ -311,11 +318,11 @@
             const value = station[metric];
             if (value !== null && !isNaN(value) && value <= threshold) {
                 const marker = L.circleMarker([station.lat, station.lon], {
-                    radius: 8,
+                    radius: 6,
                     color: getColor(value),
                     fillColor: getColor(value),
                     fillOpacity: 0.8,
-                    weight: 1.5
+                    weight: 1.2
                 });
 
                 marker.on('click', () => {
@@ -351,8 +358,8 @@
         
         loadingElement.style.display = "block";
         loadingElement.innerHTML = `
-            <h3>Loading ${stationName} Data</h3>
-            <p>Please wait while we load the detailed information...</p>
+            <h3 style="margin-top: 0;">Loading ${stationName}</h3>
+            <p>Please wait...</p>
         `;
         
         // Load both model data and precipitation data in parallel
@@ -390,8 +397,8 @@
             }
             
             currentPopup = L.popup({ 
-                maxWidth: 650, 
-                maxHeight: 600,
+                maxWidth: '95vw',
+                maxHeight: '80vh',
                 className: 'station-popup'
             })
             .setLatLng([station.lat, station.lon])
@@ -439,15 +446,15 @@
             <div class="popup-content">
                 <div class="popup-header">
                     <h3 class="popup-title">${station.Station_Name}</h3>
-                    <span class="close-btn" title="Close">&times;</span>
+                    <button class="close-btn" title="Close">&times;</button>
                 </div>
                 
                 <div class="station-info">
                     <p>
                         <strong>Location:</strong> ${station.lat?.toFixed(4)}, ${station.lon?.toFixed(4)}<br>
                         <strong>Elevation:</strong> ${station.height || 'N/A'} m<br>
-                        <strong>Performance:</strong> F1 ${station.F1?.toFixed(2) || 'N/A'} | 
-                        TFR ${station.TFR?.toFixed(2) || 'N/A'} | Count ${station.Count || 'N/A'}
+                        <strong>F1:</strong> ${station.F1?.toFixed(2) || 'N/A'} | 
+                        <strong>TFR:</strong> ${station.TFR?.toFixed(2) || 'N/A'}
                     </p>
                 </div>
                 
@@ -490,7 +497,7 @@
             'var(--primary-color)'
         );
         
-        // Ground Truth Chart (fixed to show all active states)
+        // Ground Truth Chart with vertical lines
         renderBinaryChart(
             `truth-chart-${stationName}`,
             "Ground Truth",
@@ -499,7 +506,7 @@
             'var(--secondary-color)'
         );
         
-        // Model Charts
+        // Model Charts with vertical lines
         renderBinaryChart(
             `lstm-chart-${stationName}`,
             "LSTM Predictions",
@@ -615,7 +622,7 @@
                                 maxTicksLimit: 10,
                                 maxRotation: 0,
                                 font: {
-                                    size: 10
+                                    size: 9
                                 }
                             }
                         },
@@ -625,7 +632,7 @@
                                 display: true,
                                 text: 'Precipitation (mm)',
                                 font: {
-                                    size: 12
+                                    size: 10
                                 }
                             },
                             beginAtZero: true
@@ -637,7 +644,7 @@
                             position: 'top',
                             labels: {
                                 font: {
-                                    size: 12
+                                    size: 10
                                 }
                             }
                         },
@@ -660,23 +667,45 @@
         try {
             const ctx = document.getElementById(canvasId).getContext('2d');
             
-            // Create display values - show 1 for active states (value > 0.5), NaN otherwise
-            const displayValues = values.map(val => val > 0.5 ? 1 : NaN);
+            // Create dataset with vertical lines for active periods
+            const datasets = [];
+            
+            // Find all active periods (where value > 0.5)
+            let activeStart = null;
+            for (let i = 0; i < values.length; i++) {
+                const isActive = values[i] > 0.5;
+                
+                if (isActive && activeStart === null) {
+                    activeStart = i;
+                } else if (!isActive && activeStart !== null) {
+                    // Create a dataset for this active period
+                    datasets.push(createVerticalLineDataset(
+                        labels, 
+                        activeStart, 
+                        i-1, 
+                        color, 
+                        `${label} (${formatTimeRange(labels[activeStart], labels[i-1])})`
+                    ));
+                    activeStart = null;
+                }
+            }
+            
+            // Handle case where active period continues to end
+            if (activeStart !== null) {
+                datasets.push(createVerticalLineDataset(
+                    labels,
+                    activeStart,
+                    values.length-1,
+                    color,
+                    `${label} (${formatTimeRange(labels[activeStart], labels[values.length-1])})`
+                ));
+            }
             
             new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: labels,
-                    datasets: [{
-                        label: label,
-                        data: displayValues,
-                        borderColor: color,
-                        backgroundColor: color.replace(')', ', 0.1)'),
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        stepped: 'after',
-                        spanGaps: false
-                    }]
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
@@ -689,24 +718,14 @@
                                 maxTicksLimit: 10,
                                 maxRotation: 0,
                                 font: {
-                                    size: 10
+                                    size: 9
                                 }
                             }
                         },
                         y: {
-                            display: true,
-                            min: -0.1,
-                            max: 1.1,
-                            ticks: {
-                                callback: function(value) {
-                                    if (value === 1) return 'Active';
-                                    if (value === 0) return 'Inactive';
-                                    return '';
-                                },
-                                font: {
-                                    size: 10
-                                }
-                            }
+                            display: false,
+                            min: 0,
+                            max: 1
                         }
                     },
                     plugins: {
@@ -715,17 +734,23 @@
                             position: 'top',
                             labels: {
                                 font: {
-                                    size: 12
-                                }
+                                    size: 10
+                                },
+                                boxWidth: 12,
+                                padding: 5
                             }
                         },
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
-                                    const val = values[context.dataIndex];
-                                    return `${label}: ${val > 0.5 ? 'Active' : 'Inactive'} (${val?.toFixed(2)})`;
+                                    return context.dataset.label;
                                 }
                             }
+                        }
+                    },
+                    elements: {
+                        line: {
+                            tension: 0 // Disable bezier curves
                         }
                     }
                 }
@@ -736,13 +761,39 @@
         }
     }
 
+    function createVerticalLineDataset(labels, startIdx, endIdx, color, label) {
+        const data = new Array(labels.length).fill(NaN);
+        
+        // Create vertical line by setting start and end points
+        data[startIdx] = 1;
+        data[endIdx] = 1;
+        
+        return {
+            label: label,
+            data: data,
+            borderColor: color,
+            backgroundColor: color.replace(')', ', 0.1)'),
+            borderWidth: 2,
+            pointRadius: 0,
+            stepped: true,
+            spanGaps: false
+        };
+    }
+
+    function formatTimeRange(startTime, endTime) {
+        if (!startTime || !endTime) return '';
+        const start = startTime.split(' ')[1] || '';
+        const end = endTime.split(' ')[1] || '';
+        return `${start} - ${end}`;
+    }
+
     function showError(message) {
         loadingElement.style.display = "block";
         loadingElement.innerHTML = `
             <div style="color: var(--danger-color);">
-                <h3>Error Loading Data</h3>
+                <h3 style="margin-top: 0;">Error</h3>
                 <p>${message}</p>
-                <p>Please check the browser console (F12) for details.</p>
+                <p>Check console (F12) for details.</p>
             </div>
         `;
         console.error(message);
