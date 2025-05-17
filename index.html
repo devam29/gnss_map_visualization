@@ -131,14 +131,15 @@
     const metricSelect = document.getElementById("metricSelect");
     const loadingElement = document.getElementById("loading");
 
-    // Load station data
+    // Load station metadata
+    console.log("Loading station scores data...");
     Papa.parse("full_df_scores.csv", {
         download: true,
         header: true,
         dynamicTyping: true,
         complete: function(results) {
             if (!results.data || results.data.length === 0) {
-                showError("CSV file is empty or invalid");
+                showError("Station scores CSV file is empty or invalid");
                 return;
             }
             
@@ -149,7 +150,7 @@
         },
         error: function(error) {
             showError(`Failed to load station data: ${error.message}`);
-            console.error("CSV loading error:", error);
+            console.error("Station scores CSV loading error:", error);
         }
     });
 
@@ -225,45 +226,63 @@
         const stationName = station.Station_Name;
         console.log(`Loading details for station: ${stationName}`);
         
-        Papa.parse(`station_plots/${stationName}.csv`, {
-            download: true,
-            header: true,
-            dynamicTyping: true,
-            complete: function(results) {
-                if (!results.data || results.data.length === 0) {
-                    showError(`No data found for station ${stationName}`);
-                    return;
-                }
-                
-                const data = results.data;
-                const html = createPopupHTML(station, data);
-                
-                // Close any existing popup
-                if (currentPopup) {
-                    map.closePopup(currentPopup);
-                }
-                
-                currentPopup = L.popup({ maxWidth: 650, maxHeight: 600 })
-                    .setLatLng([station.lat, station.lon])
-                    .setContent(html)
-                    .openOn(map);
-                
-                setTimeout(() => {
-                    renderAllCharts(stationName, data);
-                    // Add event listener to close button
-                    document.querySelector('.close-btn').addEventListener('click', () => {
-                        map.closePopup(currentPopup);
-                    });
-                }, 50);
-            },
-            error: function(error) {
-                showError(`Failed to load data for station ${stationName}`);
-                console.error("Station data error:", error);
+        // Load both model data and precipitation data in parallel
+        Promise.all([
+            loadCSV(`station_plots/${stationName}.csv`),
+            loadCSV(`precip/${stationName}.csv`)
+        ]).then(([modelData, precipData]) => {
+            if (!modelData || modelData.length === 0) {
+                showError(`No model data found for station ${stationName}`);
+                return;
             }
+            
+            if (!precipData || precipData.length === 0) {
+                showError(`No precipitation data found for station ${stationName}`);
+                return;
+            }
+            
+            const html = createPopupHTML(station, modelData, precipData);
+            
+            // Close any existing popup
+            if (currentPopup) {
+                map.closePopup(currentPopup);
+            }
+            
+            currentPopup = L.popup({ maxWidth: 650, maxHeight: 600 })
+                .setLatLng([station.lat, station.lon])
+                .setContent(html)
+                .openOn(map);
+            
+            setTimeout(() => {
+                renderAllCharts(stationName, modelData, precipData);
+                // Add event listener to close button
+                document.querySelector('.close-btn').addEventListener('click', () => {
+                    map.closePopup(currentPopup);
+                });
+            }, 50);
+        }).catch(error => {
+            showError(`Failed to load data for station ${stationName}: ${error.message}`);
+            console.error("Station data loading error:", error);
         });
     }
 
-    function createPopupHTML(station, data) {
+    function loadCSV(url) {
+        return new Promise((resolve, reject) => {
+            Papa.parse(url, {
+                download: true,
+                header: true,
+                dynamicTyping: true,
+                complete: function(results) {
+                    resolve(results.data);
+                },
+                error: function(error) {
+                    reject(error);
+                }
+            });
+        });
+    }
+
+    function createPopupHTML(station, modelData, precipData) {
         return `
             <div class="popup-content">
                 <div class="popup-header">
@@ -300,82 +319,162 @@
         `;
     }
 
-    function renderAllCharts(stationName, data) {
+    function renderAllCharts(stationName, modelData, precipData) {
+        // First align the timestamps between model and precipitation data
+        const alignedData = alignData(modelData, precipData);
+        
         // Precipitation Chart (continuous)
-        renderChart(
+        renderPrecipChart(
             `precip-chart-${stationName}`,
             "Precipitation",
-            data.map(row => row.Rolling_Sum),
-            '#3498db',
-            'mm',
-            false
+            alignedData.times,
+            alignedData.precipValues,
+            '#3498db'
         );
         
-        // Binary Charts (vertical lines only)
+        // Ground Truth Chart
         renderBinaryChart(
             `truth-chart-${stationName}`,
             "Ground Truth",
-            data.map(row => row.true_label),
+            alignedData.times,
+            alignedData.truthValues,
             '#2c3e50'
         );
         
+        // Model Charts
         renderBinaryChart(
             `lstm-chart-${stationName}`,
             "LSTM Predictions",
-            data.map(row => row.Predicted_lstm),
+            alignedData.times,
+            alignedData.lstmValues,
             '#e74c3c'
         );
         
         renderBinaryChart(
             `unet-chart-${stationName}`,
             "UNet Predictions",
-            data.map(row => row.Predicted_nn),
+            alignedData.times,
+            alignedData.unetValues,
             '#27ae60'
         );
         
         renderBinaryChart(
             `xgb-chart-${stationName}`,
             "XGBoost Predictions",
-            data.map(row => row.Predicted_Binary),
+            alignedData.times,
+            alignedData.xgbValues,
             '#f39c12'
         );
     }
 
-    function renderBinaryChart(canvasId, label, data, color) {
+    function alignData(modelData, precipData) {
+        // Create a map of model data by time for quick lookup
+        const modelMap = {};
+        modelData.forEach(row => {
+            modelMap[row.Epoch_Time] = {
+                truth: row.true_label,
+                lstm: row.Predicted_lstm,
+                unet: row.Predicted_nn,
+                xgb: row.Predicted_Binary
+            };
+        });
+        
+        const result = {
+            times: [],
+            precipValues: [],
+            truthValues: [],
+            lstmValues: [],
+            unetValues: [],
+            xgbValues: []
+        };
+        
+        // Match precipitation data with model data
+        precipData.forEach(precip => {
+            const modelEntry = modelMap[precip.Epoch_Time];
+            if (modelEntry) {
+                result.times.push(precip.Epoch_Time);
+                result.precipValues.push(precip.Rolling_Sum);
+                result.truthValues.push(modelEntry.truth);
+                result.lstmValues.push(modelEntry.lstm);
+                result.unetValues.push(modelEntry.unet);
+                result.xgbValues.push(modelEntry.xgb);
+            }
+        });
+        
+        return result;
+    }
+
+    function renderPrecipChart(canvasId, label, times, values, color) {
+        try {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: times,
+                    datasets: [{
+                        label: label,
+                        data: values,
+                        borderColor: color,
+                        backgroundColor: color + '20',
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        fill: true,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            display: false
+                        },
+                        y: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'Precipitation (mm)'
+                            },
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error(`Error rendering precipitation chart:`, error);
+        }
+    }
+
+    function renderBinaryChart(canvasId, label, times, values, color) {
         try {
             const ctx = document.getElementById(canvasId).getContext('2d');
             
-            // Convert binary data to vertical line segments
-            const lineSegments = [];
-            let segmentStart = null;
+            // Convert to stepped line data
+            const steppedData = [];
+            let currentValue = null;
             
-            for (let i = 0; i < data.length; i++) {
-                if (data[i] === 1) {
-                    if (segmentStart === null) segmentStart = i;
+            for (let i = 0; i < values.length; i++) {
+                if (values[i] !== currentValue) {
+                    steppedData.push(values[i]);
+                    currentValue = values[i];
                 } else {
-                    if (segmentStart !== null) {
-                        lineSegments.push({start: segmentStart, end: i-1});
-                        segmentStart = null;
-                    }
+                    steppedData.push(NaN);
                 }
-            }
-            
-            // Handle case where segment continues to end
-            if (segmentStart !== null) {
-                lineSegments.push({start: segmentStart, end: data.length-1});
             }
             
             new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: data.map((_, i) => i),
+                    labels: times,
                     datasets: [{
                         label: label,
-                        data: data.map((val, i) => {
-                            // Only show points where value changes
-                            if (i === 0 || val !== data[i-1]) return val;
-                            return NaN;
-                        }),
+                        data: steppedData,
                         borderColor: color,
                         backgroundColor: color + '20',
                         borderWidth: 2,
@@ -395,7 +494,10 @@
                             min: -0.1,
                             max: 1.1,
                             ticks: {
-                                stepSize: 1
+                                stepSize: 1,
+                                callback: function(value) {
+                                    return value === 1 ? '1' : value === 0 ? '0' : '';
+                                }
                             }
                         }
                     },
@@ -410,52 +512,6 @@
                                     return `${label}: ${context.parsed.y === 1 ? 'Active' : 'Inactive'}`;
                                 }
                             }
-                        }
-                    }
-                }
-            });
-        } catch (error) {
-            console.error(`Error rendering ${canvasId}:`, error);
-        }
-    }
-
-    function renderChart(canvasId, label, data, color, yLabel, isBinary) {
-        try {
-            const ctx = document.getElementById(canvasId).getContext('2d');
-            new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: data.map((_, i) => i),
-                    datasets: [{
-                        label: label,
-                        data: data,
-                        borderColor: color,
-                        backgroundColor: color + '20',
-                        borderWidth: 1,
-                        pointRadius: 0,
-                        fill: false,
-                        tension: 0.1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            display: false
-                        },
-                        y: {
-                            display: true,
-                            title: {
-                                display: true,
-                                text: yLabel
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: {
-                            display: true,
-                            position: 'top'
                         }
                     }
                 }
