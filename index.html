@@ -602,9 +602,9 @@
                     datasets: [{
                         label: label,
                         data: dataPoints,
-                        backgroundColor: color,
+                        backgroundColor: color + '80', // Add transparency
                         borderColor: color,
-                        borderWidth: 1,
+                        borderWidth: 0.5,
                         barPercentage: 0.8,
                         categoryPercentage: 0.8
                     }]
@@ -691,7 +691,7 @@
                         data: lineSegments,
                         borderColor: color,
                         backgroundColor: color,
-                        borderWidth: 2,
+                        borderWidth: 0.5, // Thinner lines
                         pointRadius: 0,
                         stepped: false,
                         spanGaps: false
@@ -710,6 +710,9 @@
                                 font: {
                                     size: 10
                                 }
+                            },
+                            grid: {
+                                display: false // Remove vertical grid lines for cleaner look
                             }
                         },
                         y: {
@@ -725,6 +728,13 @@
                                 font: {
                                     size: 10
                                 }
+                            },
+                            grid: {
+                                color: function(context) {
+                                    // Only show grid lines at 0 and 1
+                                    return context.tick.value === 0 || context.tick.value === 1 ? 
+                                        'rgba(0, 0, 0, 0.1)' : 'transparent';
+                                }
                             }
                         }
                     },
@@ -735,7 +745,9 @@
                             labels: {
                                 font: {
                                     size: 12
-                                }
+                                },
+                                boxWidth: 12,
+                                padding: 10
                             }
                         },
                         tooltip: {
