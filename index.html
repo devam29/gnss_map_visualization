@@ -490,7 +490,7 @@
             'var(--primary-color)'
         );
         
-        // Ground Truth Chart (fixed to show all active states)
+        // Ground Truth Chart (vertical lines for active states)
         renderBinaryChart(
             `truth-chart-${stationName}`,
             "Ground Truth",
@@ -660,23 +660,32 @@
         try {
             const ctx = document.getElementById(canvasId).getContext('2d');
             
-            // Create display values - show 1 for active states (value > 0.5), NaN otherwise
-            const displayValues = values.map(val => val > 0.5 ? 1 : NaN);
+            // Create datasets for vertical lines
+            const datasets = [];
             
-            new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: label,
-                        data: displayValues,
+            // For each data point, create a vertical line if value > 0.5 (active)
+            values.forEach((val, index) => {
+                if (val > 0.5) {
+                    datasets.push({
+                        label: index === 0 ? label : '', // Only show label for first dataset
+                        data: [
+                            {x: labels[index], y: 0},
+                            {x: labels[index], y: 1}
+                        ],
                         borderColor: color,
-                        backgroundColor: color.replace(')', ', 0.1)'),
+                        backgroundColor: color,
                         borderWidth: 2,
                         pointRadius: 0,
-                        stepped: 'after',
-                        spanGaps: false
-                    }]
+                        showLine: true
+                    });
+                }
+            });
+            
+            new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    labels: labels,
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
@@ -722,8 +731,7 @@
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
-                                    const val = values[context.dataIndex];
-                                    return `${label}: ${val > 0.5 ? 'Active' : 'Inactive'} (${val?.toFixed(2)})`;
+                                    return `${label}: Active`;
                                 }
                             }
                         }
