@@ -7,11 +7,11 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         :root {
-            --primary-color: #3498db;
-            --secondary-color: #2c3e50;
-            --success-color: #27ae60;
-            --danger-color: #e74c3c;
-            --warning-color: #f39c12;
+            --primary-color: #1f77b4;  /* Blue for precipitation */
+            --secondary-color: #2e2e2e; /* Dark gray for ground truth */
+            --success-color: #2ca02c;  /* Green for UNet */
+            --danger-color: #d62728;   /* Red for XGBoost */
+            --warning-color: #9467bd;  /* Purple for LSTM */
             --light-gray: #f8f9fa;
             --dark-gray: #343a40;
         }
@@ -505,7 +505,7 @@
             "LSTM Predictions",
             displayTimes,
             lstmValues,
-            'var(--danger-color)'
+            'var(--warning-color)'
         );
         
         renderBinaryChart(
@@ -521,7 +521,7 @@
             "XGBoost Predictions",
             displayTimes,
             xgbValues,
-            'var(--warning-color)'
+            'var(--danger-color)'
         );
     }
 
@@ -589,19 +589,24 @@
         try {
             const ctx = document.getElementById(canvasId).getContext('2d');
             
+            // Create array of objects for each data point
+            const dataPoints = values.map((value, index) => ({
+                x: labels[index],
+                y: value
+            }));
+            
             new Chart(ctx, {
-                type: 'line',
+                type: 'bar',
                 data: {
                     labels: labels,
                     datasets: [{
                         label: label,
-                        data: values,
+                        data: dataPoints,
+                        backgroundColor: color,
                         borderColor: color,
-                        backgroundColor: color.replace(')', ', 0.1)'),
-                        borderWidth: 1.5,
-                        pointRadius: 0,
-                        fill: true,
-                        tension: 0.1
+                        borderWidth: 1,
+                        barPercentage: 0.8,
+                        categoryPercentage: 0.8
                     }]
                 },
                 options: {
@@ -660,32 +665,37 @@
         try {
             const ctx = document.getElementById(canvasId).getContext('2d');
             
-            // Create datasets for vertical lines
-            const datasets = [];
-            
-            // For each data point, create a vertical line if value > 0.5 (active)
-            values.forEach((val, index) => {
-                if (val > 0.5) {
-                    datasets.push({
-                        label: index === 0 ? label : '', // Only show label for first dataset
-                        data: [
-                            {x: labels[index], y: 0},
-                            {x: labels[index], y: 1}
-                        ],
-                        borderColor: color,
-                        backgroundColor: color,
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        showLine: true
+            // Create array of objects for vertical lines (only for active states)
+            const lineSegments = [];
+            values.forEach((value, index) => {
+                if (value > 0.5) {
+                    lineSegments.push({
+                        x: labels[index],
+                        y: 0
+                    }, {
+                        x: labels[index],
+                        y: 1
+                    }, {
+                        x: labels[index],
+                        y: NaN // Break the line
                     });
                 }
             });
             
             new Chart(ctx, {
-                type: 'scatter',
+                type: 'line',
                 data: {
                     labels: labels,
-                    datasets: datasets
+                    datasets: [{
+                        label: label,
+                        data: lineSegments,
+                        borderColor: color,
+                        backgroundColor: color,
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        stepped: false,
+                        spanGaps: false
+                    }]
                 },
                 options: {
                     responsive: true,
@@ -731,7 +741,7 @@
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
-                                    return `${label}: Active`;
+                                    return `${label}: ${context.parsed.y === 1 ? 'Active' : 'Inactive'}`;
                                 }
                             }
                         }
