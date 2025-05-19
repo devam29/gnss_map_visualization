@@ -41,11 +41,6 @@
             z-index: 1000;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             border: 1px solid #e0e0e0;
-            transition: z-index 0.3s ease;
-        }
-        
-        #control-container.hidden-on-mobile {
-            z-index: 500;
         }
         
         #loading {
@@ -235,7 +230,6 @@
     const sliderValueDisplay = document.getElementById("slider-value");
     const metricSelect = document.getElementById("metricSelect");
     const loadingElement = document.getElementById("loading");
-    const controlContainer = document.getElementById("control-container");
 
     // Load station metadata
     console.log("Loading station scores data...");
@@ -272,17 +266,6 @@
     slider.addEventListener("input", updateSliderDisplay);
     slider.addEventListener("change", updateMarkers);
     metricSelect.addEventListener("change", updateMetricSettings);
-
-    // Handle mobile view when popup opens
-    function handleMobilePopup(open) {
-        if (window.innerWidth <= 768) {
-            if (open) {
-                controlContainer.classList.add('hidden-on-mobile');
-            } else {
-                controlContainer.classList.remove('hidden-on-mobile');
-            }
-        }
-    }
 
     function updateSliderDisplay() {
         sliderValueDisplay.textContent = parseFloat(slider.value).toFixed(2);
@@ -326,51 +309,34 @@
         
         stationData.forEach(station => {
             const value = station[metric];
-            if (value !== null && !isNaN(value) {
-                // For Count metric, we want to show stations with count >= threshold
-                // For other metrics, we want to show stations with value <= threshold
-                const shouldShow = metric === "Count" ? value >= threshold : value <= threshold;
-                
-                if (shouldShow) {
-                    const marker = L.circleMarker([station.lat, station.lon], {
-                        radius: 8,
-                        color: getColor(value, metric),
-                        fillColor: getColor(value, metric),
-                        fillOpacity: 0.8,
-                        weight: 1.5
-                    });
+            if (value !== null && !isNaN(value) && value <= threshold) {
+                const marker = L.circleMarker([station.lat, station.lon], {
+                    radius: 8,
+                    color: getColor(value),
+                    fillColor: getColor(value),
+                    fillOpacity: 0.8,
+                    weight: 1.5
+                });
 
-                    marker.on('click', () => {
-                        console.log("Showing details for:", station.Station_Name);
-                        handleMobilePopup(true);
-                        showStationDetails(station);
-                    });
+                marker.on('click', () => {
+                    console.log("Showing details for:", station.Station_Name);
+                    showStationDetails(station);
+                });
 
-                    marker.bindTooltip(station.Station_Name, {
-                        permanent: false,
-                        direction: 'top'
-                    });
+                marker.bindTooltip(station.Station_Name, {
+                    permanent: false,
+                    direction: 'top'
+                });
 
-                    markerGroup.addLayer(marker);
-                    visibleStations++;
-                }
+                markerGroup.addLayer(marker);
+                visibleStations++;
             }
         });
         
         console.log(`Displaying ${visibleStations} stations`);
     }
 
-    function getColor(value, metric) {
-        // Special handling for Count metric
-        if (metric === "Count") {
-            const max = parseFloat(slider.max);
-            const normalized = Math.min(1, value / max);
-            // Use a color scale from green to red for count (more counts = more red)
-            const hue = (120 - (normalized * 120)).toString(10);
-            return `hsl(${hue}, 100%, 45%)`;
-        }
-        
-        // For other metrics (F1, TFR, etc.)
+    function getColor(value) {
         const max = parseFloat(slider.max);
         const normalized = Math.min(1, value / max);
         
@@ -421,7 +387,6 @@
             // Close any existing popup
             if (currentPopup) {
                 map.closePopup(currentPopup);
-                handleMobilePopup(false);
             }
             
             currentPopup = L.popup({ 
@@ -431,9 +396,6 @@
             })
             .setLatLng([station.lat, station.lon])
             .setContent(html)
-            .on('remove', () => {
-                handleMobilePopup(false);
-            })
             .openOn(map);
             
             // Render charts after slight delay to ensure DOM is ready
@@ -443,7 +405,6 @@
                 // Add event listener to close button
                 document.querySelector('.close-btn').addEventListener('click', () => {
                     map.closePopup(currentPopup);
-                    handleMobilePopup(false);
                 });
             }, 100);
         }).catch(error => {
@@ -644,7 +605,7 @@
                     datasets: [{
                         label: label,
                         data: dataPoints,
-                        backgroundColor: color.replace(')', ', 0.7)').replace('var(', '').replace(')', ''), // Less transparency
+                        backgroundColor: color.replace(')', ', 0.9)').replace('var(', '').replace(')', ''),
                         borderColor: color.replace(')', ', 1)').replace('var(', '').replace(')', ''),
                         borderWidth: 0.5,
                         barPercentage: 0.8,
@@ -659,7 +620,7 @@
                             display: true,
                             ticks: {
                                 autoSkip: true,
-                                maxTicksLimit: 5, // Reduced from 10 to 5
+                                maxTicksLimit: 5,
                                 maxRotation: 0,
                                 font: {
                                     size: 10
@@ -714,24 +675,26 @@
             const lineSegments = [];
             let lastValue = 0;
             
-            // We'll only draw lines when the state changes to make gaps visible
+            // Only draw lines when state changes to make gaps visible
             values.forEach((value, index) => {
-                if (value > 0.5 && lastValue <= 0.5) {
-                    // Start of active period
-                    lineSegments.push({
-                        x: labels[index],
-                        y: 0
-                    }, {
-                        x: labels[index],
-                        y: 1
-                    });
-                } else if (value > 0.5 && lastValue > 0.5) {
-                    // Continue active period
-                    lineSegments.push({
-                        x: labels[index],
-                        y: 1
-                    });
-                } else if (value <= 0.5 && lastValue > 0.5) {
+                if (value > 0.5) {
+                    if (lastValue <= 0.5) {
+                        // Start of active period
+                        lineSegments.push({
+                            x: labels[index],
+                            y: 0
+                        }, {
+                            x: labels[index],
+                            y: 1
+                        });
+                    } else {
+                        // Continue active period
+                        lineSegments.push({
+                            x: labels[index],
+                            y: 1
+                        });
+                    }
+                } else if (lastValue > 0.5) {
                     // End of active period
                     lineSegments.push({
                         x: labels[index],
@@ -751,9 +714,9 @@
                     datasets: [{
                         label: label,
                         data: lineSegments,
-                        borderColor: color.replace(')', ', 1)').replace('var(', '').replace(')', ''), // Full opacity
+                        borderColor: color.replace(')', ', 1)').replace('var(', '').replace(')', ''),
                         backgroundColor: color.replace(')', ', 1)').replace('var(', '').replace(')', ''),
-                        borderWidth: 1.5, // Thicker lines
+                        borderWidth: 0.8, // Thicker lines
                         pointRadius: 0,
                         stepped: false,
                         spanGaps: false
@@ -767,14 +730,14 @@
                             display: true,
                             ticks: {
                                 autoSkip: true,
-                                maxTicksLimit: 5, // Reduced from 10 to 5
+                                maxTicksLimit: 5,
                                 maxRotation: 0,
                                 font: {
                                     size: 10
                                 }
                             },
                             grid: {
-                                display: false // Remove vertical grid lines for cleaner look
+                                display: false
                             }
                         },
                         y: {
@@ -793,7 +756,6 @@
                             },
                             grid: {
                                 color: function(context) {
-                                    // Only show grid lines at 0 and 1
                                     return context.tick.value === 0 || context.tick.value === 1 ? 
                                         'rgba(0, 0, 0, 0.1)' : 'transparent';
                                 }
