@@ -7,11 +7,11 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         :root {
-            --primary-color: #1f77b4;
-            --secondary-color: #2e2e2e;
-            --success-color: #2ca02c;
-            --danger-color: #d62728;
-            --warning-color: #9467bd;
+            --primary-color: #1f77b4;  /* Blue for precipitation */
+            --secondary-color: #2e2e2e; /* Dark gray for ground truth */
+            --success-color: #2ca02c;  /* Green for UNet */
+            --danger-color: #d62728;   /* Red for XGBoost */
+            --warning-color: #9467bd;  /* Purple for LSTM */
             --light-gray: #f8f9fa;
             --dark-gray: #343a40;
         }
@@ -74,7 +74,7 @@
             font-size: 14px;
         }
         
-        select, input[type="text"] {
+        select {
             width: 100%;
             margin-bottom: 15px;
             padding: 8px 12px;
@@ -149,6 +149,10 @@
             padding: 0 5px;
         }
         
+        .close-btn:hover {
+            color: var(--danger-color);
+        }
+        
         @media (max-width: 768px) {
             #control-container {
                 width: 280px;
@@ -159,21 +163,34 @@
                 height: 120px;
             }
         }
+        
+        @media (max-width: 480px) {
+            #control-container {
+                width: 240px;
+                font-size: 13px;
+            }
+            
+            .popup-content {
+                max-width: 95vw;
+            }
+            
+            .chart-container {
+                height: 100px;
+            }
+        }
     </style>
 </head>
 <body>
     <div id="loading">
         <h3>Loading GNSS Station Data</h3>
         <p>Please wait while we load the station information...</p>
+        <div class="spinner"></div>
     </div>
     
     <div id="control-container">
         <div class="control-title">Station Filter</div>
-        <label for="searchInput">Search Station:</label>
-        <input type="text" id="searchInput" placeholder="Enter station name...">
-        
         <label for="metricSelect">Performance Metric:</label>
-        <select id="metricSelect">
+        <select id="metricSelect" class="form-control">
             <option value="F1">F1 Score</option>
             <option value="TFR">True Failure Rate</option>
             <option value="FFR">False Failure Rate</option>
@@ -193,31 +210,55 @@
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
 
     <script>
+    console.log("Starting GNSS Map Visualization");
+    
+    // Initialize map with better default view
     const map = L.map('map').setView([46.8, 8.3], 7);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
 
+    // Add scale control
+    L.control.scale({position: 'bottomleft'}).addTo(map);
+
     const markerGroup = L.layerGroup().addTo(map);
     let stationData = [];
     let currentPopup = null;
-    let allCharts = [];
 
+    // DOM elements
     const slider = document.getElementById("valueSlider");
     const sliderValueDisplay = document.getElementById("slider-value");
     const metricSelect = document.getElementById("metricSelect");
     const loadingElement = document.getElementById("loading");
-    const searchInput = document.getElementById("searchInput");
 
-    // Load station data
+    // Load station metadata
+    console.log("Loading station scores data...");
     Papa.parse("full_df_scores.csv", {
         download: true,
         header: true,
         dynamicTyping: true,
         complete: function(results) {
-            stationData = results.data.filter(station => !isNaN(station.lat) && !isNaN(station.lon));
+            if (!results.data || results.data.length === 0) {
+                showError("No station data found in the CSV file");
+                return;
+            }
+            
+            console.log(`Loaded ${results.data.length} stations`);
+            stationData = results.data.filter(station => 
+                !isNaN(station.lat) && !isNaN(station.lon)
+            );
+            
+            if (stationData.length === 0) {
+                showError("No valid station coordinates found");
+                return;
+            }
+            
             updateMarkers();
             loadingElement.style.display = "none";
+        },
+        error: function(error) {
+            showError(`Failed to load station data: ${error.message}`);
+            console.error("CSV loading error:", error);
         }
     });
 
@@ -225,20 +266,6 @@
     slider.addEventListener("input", updateSliderDisplay);
     slider.addEventListener("change", updateMarkers);
     metricSelect.addEventListener("change", updateMetricSettings);
-    searchInput.addEventListener("input", searchStations);
-
-    function searchStations() {
-        const query = searchInput.value.toLowerCase();
-        if (!query) return;
-
-        const found = stationData.find(station => 
-            station.Station_Name.toLowerCase().includes(query)
-        );
-        
-        if (found) {
-            map.setView([found.lat, found.lon], 12);
-        }
-    }
 
     function updateSliderDisplay() {
         sliderValueDisplay.textContent = parseFloat(slider.value).toFixed(2);
@@ -246,6 +273,7 @@
 
     function updateMetricSettings() {
         const metric = metricSelect.value;
+        
         if (metric === "Count") {
             slider.min = 0;
             slider.max = 5000;
@@ -262,6 +290,7 @@
             slider.step = 0.01;
             slider.value = 1;
         }
+        
         updateSliderDisplay();
         updateMarkers();
     }
@@ -271,75 +300,148 @@
         const threshold = parseFloat(slider.value);
         const metric = metricSelect.value;
 
+        if (!stationData || stationData.length === 0) {
+            console.warn("No station data available");
+            return;
+        }
+
+        let visibleStations = 0;
+        
         stationData.forEach(station => {
             const value = station[metric];
-            if (value !== null && !isNaN(value) {
-                const shouldShow = metric === "Count" ? value >= threshold : value <= threshold;
-                if (shouldShow) {
-                    const marker = L.circleMarker([station.lat, station.lon], {
-                        radius: 8,
-                        color: getColor(value, metric),
-                        fillColor: getColor(value, metric),
-                        fillOpacity: 0.8,
-                        weight: 1.5
-                    });
+            if (value !== null && !isNaN(value) && value <= threshold) {
+                const marker = L.circleMarker([station.lat, station.lon], {
+                    radius: 8,
+                    color: getColor(value),
+                    fillColor: getColor(value),
+                    fillOpacity: 0.8,
+                    weight: 1.5
+                });
 
-                    marker.on('click', () => showStationDetails(station));
-                    marker.bindTooltip(station.Station_Name, { permanent: false, direction: 'top' });
-                    markerGroup.addLayer(marker);
-                }
+                marker.on('click', () => {
+                    console.log("Showing details for:", station.Station_Name);
+                    showStationDetails(station);
+                });
+
+                marker.bindTooltip(station.Station_Name, {
+                    permanent: false,
+                    direction: 'top'
+                });
+
+                markerGroup.addLayer(marker);
+                visibleStations++;
             }
         });
+        
+        console.log(`Displaying ${visibleStations} stations`);
     }
 
-    function getColor(value, metric) {
+    function getColor(value) {
         const max = parseFloat(slider.max);
         const normalized = Math.min(1, value / max);
-        const hue = metric === "Count" ? (120 - (normalized * 120)) : (normalized * 120);
+        
+        // Use a color scale from red to green
+        const hue = (normalized * 120).toString(10);
         return `hsl(${hue}, 100%, 45%)`;
     }
 
     function showStationDetails(station) {
-        loadingElement.style.display = "block";
-        loadingElement.innerHTML = `<h3>Loading ${station.Station_Name} Data</h3>`;
+        const stationName = station.Station_Name;
+        console.log(`Loading details for station: ${stationName}`);
         
+        loadingElement.style.display = "block";
+        loadingElement.innerHTML = `
+            <h3>Loading ${stationName} Data</h3>
+            <p>Please wait while we load the detailed information...</p>
+        `;
+        
+        // Load both model data and precipitation data in parallel
         Promise.all([
-            loadCSV(`station_plots/${station.Station_Name}.csv`),
-            loadCSV(`precip/${station.Station_Name}.csv`)
+            loadCSV(`station_plots/${stationName}.csv`),
+            loadCSV(`precip/${stationName}.csv`)
         ]).then(([modelData, precipData]) => {
             loadingElement.style.display = "none";
-            if (currentPopup) map.closePopup(currentPopup);
             
-            currentPopup = L.popup({ maxWidth: 650, className: 'station-popup' })
-                .setLatLng([station.lat, station.lon])
-                .setContent(createPopupHTML(station))
-                .openOn(map);
+            if (!modelData || modelData.length === 0) {
+                throw new Error(`No model data found for station ${stationName}`);
+            }
             
+            if (!precipData || precipData.length === 0) {
+                throw new Error(`No precipitation data found for station ${stationName}`);
+            }
+            
+            // Verify data structure
+            if (!modelData[0].hasOwnProperty('true_label') || 
+                !modelData[0].hasOwnProperty('Predicted_lstm') ||
+                !modelData[0].hasOwnProperty('Predicted_nn') ||
+                !modelData[0].hasOwnProperty('Predicted_Binary')) {
+                throw new Error("Model data has missing required columns");
+            }
+            
+            if (!precipData[0].hasOwnProperty('Rolling_Sum')) {
+                throw new Error("Precipitation data has missing required columns");
+            }
+            
+            const html = createPopupHTML(station, modelData, precipData);
+            
+            // Close any existing popup
+            if (currentPopup) {
+                map.closePopup(currentPopup);
+            }
+            
+            currentPopup = L.popup({ 
+                maxWidth: 650, 
+                maxHeight: 600,
+                className: 'station-popup'
+            })
+            .setLatLng([station.lat, station.lon])
+            .setContent(html)
+            .openOn(map);
+            
+            // Render charts after slight delay to ensure DOM is ready
             setTimeout(() => {
-                renderAllCharts(station.Station_Name, modelData, precipData);
-                document.querySelector('.close-btn').addEventListener('click', () => map.closePopup(currentPopup));
+                renderAllCharts(stationName, modelData, precipData);
+                
+                // Add event listener to close button
+                document.querySelector('.close-btn').addEventListener('click', () => {
+                    map.closePopup(currentPopup);
+                });
             }, 100);
+        }).catch(error => {
+            loadingElement.style.display = "none";
+            showError(`Error loading ${stationName}: ${error.message}`);
+            console.error("Station data loading error:", error);
         });
     }
 
     function loadCSV(url) {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             Papa.parse(url, {
                 download: true,
                 header: true,
                 dynamicTyping: true,
-                complete: (results) => resolve(results.data)
+                complete: function(results) {
+                    if (!results.data || results.data.length === 0) {
+                        reject(new Error("CSV file is empty"));
+                        return;
+                    }
+                    resolve(results.data);
+                },
+                error: function(error) {
+                    reject(error);
+                }
             });
         });
     }
 
-    function createPopupHTML(station) {
+    function createPopupHTML(station, modelData, precipData) {
         return `
             <div class="popup-content">
                 <div class="popup-header">
                     <h3 class="popup-title">${station.Station_Name}</h3>
                     <span class="close-btn" title="Close">&times;</span>
                 </div>
+                
                 <div class="station-info">
                     <p>
                         <strong>Location:</strong> ${station.lat?.toFixed(4)}, ${station.lon?.toFixed(4)}<br>
@@ -348,185 +450,356 @@
                         TFR ${station.TFR?.toFixed(2) || 'N/A'} | Count ${station.Count || 'N/A'}
                     </p>
                 </div>
-                <div class="chart-container"><canvas id="precip-chart-${station.Station_Name}"></canvas></div>
-                <div class="chart-container"><canvas id="truth-chart-${station.Station_Name}"></canvas></div>
-                <div class="chart-container"><canvas id="lstm-chart-${station.Station_Name}"></canvas></div>
-                <div class="chart-container"><canvas id="unet-chart-${station.Station_Name}"></canvas></div>
-                <div class="chart-container"><canvas id="xgb-chart-${station.Station_Name}"></canvas></div>
+                
+                <div class="chart-container">
+                    <canvas id="precip-chart-${station.Station_Name}"></canvas>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="truth-chart-${station.Station_Name}"></canvas>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="lstm-chart-${station.Station_Name}"></canvas>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="unet-chart-${station.Station_Name}"></canvas>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="xgb-chart-${station.Station_Name}"></canvas>
+                </div>
             </div>
         `;
     }
 
     function renderAllCharts(stationName, modelData, precipData) {
-        // Clear any existing charts
-        allCharts.forEach(chart => chart.destroy());
-        allCharts = [];
+        // First align and validate the data
+        const { times, precipValues, truthValues, lstmValues, unetValues, xgbValues } = alignAndValidateData(modelData, precipData);
         
-        const { times, precipValues, truthValues, lstmValues, unetValues, xgbValues } = alignData(modelData, precipData);
+        // Format time labels for display (show only some labels)
         const displayTimes = formatTimeLabels(times);
-
-        // Common scale options for alignment
-        const commonScaleOptions = {
-            display: true,
-            ticks: {
-                autoSkip: true,
-                maxTicksLimit: 5,
-                maxRotation: 0,
-                font: { size: 10 }
-            },
-            grid: { display: false }
-        };
-
+        
         // Precipitation Chart
-        allCharts.push(renderChart({
-            canvasId: `precip-chart-${stationName}`,
-            type: 'bar',
-            label: "Precipitation",
-            labels: displayTimes,
-            data: precipValues,
-            color: 'rgba(31, 119, 180, 0.9)',
-            yTitle: 'Precipitation (mm)',
-            scales: {
-                x: commonScaleOptions,
-                y: { beginAtZero: true }
-            }
-        }));
-
-        // Other charts
-        const charts = [
-            { id: `truth-chart-${stationName}`, label: "Ground Truth", data: truthValues, color: 'rgba(46, 46, 46, 1)' },
-            { id: `lstm-chart-${stationName}`, label: "LSTM Predictions", data: lstmValues, color: 'rgba(148, 103, 189, 1)' },
-            { id: `unet-chart-${stationName}`, label: "UNet Predictions", data: unetValues, color: 'rgba(44, 160, 44, 1)' },
-            { id: `xgb-chart-${stationName}`, label: "XGBoost Predictions", data: xgbValues, color: 'rgba(214, 39, 40, 1)' }
-        ];
-
-        charts.forEach(config => {
-            allCharts.push(renderChart({
-                canvasId: config.id,
-                type: 'line',
-                label: config.label,
-                labels: displayTimes,
-                data: config.data,
-                color: config.color,
-                scales: {
-                    x: commonScaleOptions,
-                    y: { 
-                        min: -0.1,
-                        max: 1.1,
-                        ticks: {
-                            callback: value => value === 1 ? 'Active' : value === 0 ? 'Inactive' : '',
-                            font: { size: 10 }
-                        }
-                    }
-                },
-                borderWidth: 1.5
-            }));
-        });
+        renderPrecipChart(
+            `precip-chart-${stationName}`,
+            "Precipitation",
+            displayTimes,
+            precipValues,
+            'var(--primary-color)'
+        );
+        
+        // Ground Truth Chart (vertical lines for active states)
+        renderBinaryChart(
+            `truth-chart-${stationName}`,
+            "Ground Truth",
+            displayTimes,
+            truthValues,
+            'var(--secondary-color)'
+        );
+        
+        // Model Charts
+        renderBinaryChart(
+            `lstm-chart-${stationName}`,
+            "LSTM Predictions",
+            displayTimes,
+            lstmValues,
+            'var(--warning-color)'
+        );
+        
+        renderBinaryChart(
+            `unet-chart-${stationName}`,
+            "UNet Predictions",
+            displayTimes,
+            unetValues,
+            'var(--success-color)'
+        );
+        
+        renderBinaryChart(
+            `xgb-chart-${stationName}`,
+            "XGBoost Predictions",
+            displayTimes,
+            xgbValues,
+            'var(--danger-color)'
+        );
     }
 
-    function alignData(modelData, precipData) {
+    function alignAndValidateData(modelData, precipData) {
+        // Create a map of model data by time for quick lookup
         const modelMap = {};
         modelData.forEach(row => {
-            if (row.Epoch_Time) {
-                modelMap[row.Epoch_Time] = {
-                    truth: parseFloat(row.true_label),
-                    lstm: parseFloat(row.Predicted_lstm),
-                    unet: parseFloat(row.Predicted_nn),
-                    xgb: parseFloat(row.Predicted_Binary)
-                };
+            if (!row.Epoch_Time) {
+                console.warn("Missing Epoch_Time in model data:", row);
+                return;
             }
+            
+            modelMap[row.Epoch_Time] = {
+                truth: parseFloat(row.true_label),
+                lstm: parseFloat(row.Predicted_lstm),
+                unet: parseFloat(row.Predicted_nn),
+                xgb: parseFloat(row.Predicted_Binary)
+            };
         });
-
-        const result = { times: [], precipValues: [], truthValues: [], lstmValues: [], unetValues: [], xgbValues: [] };
         
+        const result = {
+            times: [],
+            precipValues: [],
+            truthValues: [],
+            lstmValues: [],
+            unetValues: [],
+            xgbValues: []
+        };
+        
+        // Match precipitation data with model data
         precipData.forEach(precip => {
-            if (precip.Epoch_Time && modelMap[precip.Epoch_Time]) {
+            if (!precip.Epoch_Time) {
+                console.warn("Missing Epoch_Time in precipitation data:", precip);
+                return;
+            }
+            
+            const modelEntry = modelMap[precip.Epoch_Time];
+            if (modelEntry) {
                 result.times.push(precip.Epoch_Time);
                 result.precipValues.push(parseFloat(precip.Rolling_Sum));
-                result.truthValues.push(modelMap[precip.Epoch_Time].truth);
-                result.lstmValues.push(modelMap[precip.Epoch_Time].lstm);
-                result.unetValues.push(modelMap[precip.Epoch_Time].unet);
-                result.xgbValues.push(modelMap[precip.Epoch_Time].xgb);
+                result.truthValues.push(modelEntry.truth);
+                result.lstmValues.push(modelEntry.lstm);
+                result.unetValues.push(modelEntry.unet);
+                result.xgbValues.push(modelEntry.xgb);
             }
         });
         
+        console.log(`Aligned ${result.times.length} data points for station`);
         return result;
     }
 
     function formatTimeLabels(times) {
-        const step = Math.max(1, Math.floor(times.length / 4));
-        return times.map((time, index) => 
-            (index % step === 0 || index === times.length - 1) ? time.split(' ')[0] : ''
-        );
+        // Format time labels to show only some values
+        const totalPoints = times.length;
+        const step = Math.max(1, Math.floor(totalPoints / 4)); // Aim for 4 labels
+        
+        return times.map((time, index) => {
+            // Show labels at calculated intervals
+            if (index % step === 0 || index === times.length - 1) {
+                // Extract date part only (assuming format like "01-01-2024 05:00")
+                return time.split(' ')[0];
+            }
+            return '';
+        });
     }
 
-    function renderChart(config) {
-        const ctx = document.getElementById(config.canvasId).getContext('2d');
-        
-        // Prepare data based on chart type
-        let chartData;
-        if (config.type === 'line') {
-            chartData = [];
-            let lastValue = 0;
-            config.data.forEach((value, index) => {
-                if (value > 0.5) {
-                    if (lastValue <= 0.5) {
-                        chartData.push({ x: config.labels[index], y: 0 });
-                        chartData.push({ x: config.labels[index], y: 1 });
-                    } else {
-                        chartData.push({ x: config.labels[index], y: 1 });
-                    }
-                } else if (lastValue > 0.5) {
-                    chartData.push({ x: config.labels[index], y: 1 });
-                    chartData.push({ x: config.labels[index], y: 0 });
-                }
-                lastValue = value;
-            });
-        } else {
-            chartData = config.data.map((value, index) => ({
-                x: config.labels[index],
+    function renderPrecipChart(canvasId, label, labels, values, color) {
+        try {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            
+            // Create array of objects for each data point
+            const dataPoints = values.map((value, index) => ({
+                x: labels[index],
                 y: value
             }));
-        }
-
-        return new Chart(ctx, {
-            type: config.type,
-            data: {
-                labels: config.labels,
-                datasets: [{
-                    label: config.label,
-                    data: chartData,
-                    backgroundColor: config.color,
-                    borderColor: config.color,
-                    borderWidth: config.borderWidth || 0.5,
-                    barPercentage: 0.8,
-                    categoryPercentage: 0.8,
-                    pointRadius: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: config.scales,
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: 'top',
-                        labels: { font: { size: 12 }, boxWidth: 12, padding: 10 }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: context => {
-                                if (config.type === 'line') {
-                                    return `${config.label}: ${context.parsed.y === 1 ? 'Active' : 'Inactive'}`;
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: label,
+                        data: dataPoints,
+                        backgroundColor: color.replace(')', ', 0.9)').replace('var(', '').replace(')', ''),
+                        borderColor: color.replace(')', ', 1)').replace('var(', '').replace(')', ''),
+                        borderWidth: 0.5,
+                        barPercentage: 0.8,
+                        categoryPercentage: 0.8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            display: true,
+                            ticks: {
+                                autoSkip: true,
+                                maxTicksLimit: 5,
+                                maxRotation: 0,
+                                font: {
+                                    size: 10
                                 }
-                                return `${config.label}: ${context.parsed.y?.toFixed(3)}${config.yTitle?.includes('mm') ? ' mm' : ''}`;
+                            },
+                            grid: {
+                                display: false
+                            }
+                        },
+                        y: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'Precipitation (mm)',
+                                font: {
+                                    size: 12
+                                }
+                            },
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: {
+                                    size: 12
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${label}: ${context.parsed.y?.toFixed(3)} mm`;
+                                }
                             }
                         }
                     }
                 }
-            }
-        });
+            });
+        } catch (error) {
+            console.error(`Error rendering precipitation chart:`, error);
+        }
+    }
+
+    function renderBinaryChart(canvasId, label, labels, values, color) {
+        try {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            
+            // Create array of objects for vertical lines (only for active states)
+            const lineSegments = [];
+            let lastValue = 0;
+            
+            // Only draw lines when state changes to make gaps visible
+            values.forEach((value, index) => {
+                if (value > 0.5) {
+                    if (lastValue <= 0.5) {
+                        // Start of active period
+                        lineSegments.push({
+                            x: labels[index],
+                            y: 0
+                        }, {
+                            x: labels[index],
+                            y: 1
+                        });
+                    } else {
+                        // Continue active period
+                        lineSegments.push({
+                            x: labels[index],
+                            y: 1
+                        });
+                    }
+                } else if (lastValue > 0.5) {
+                    // End of active period
+                    lineSegments.push({
+                        x: labels[index],
+                        y: 1
+                    }, {
+                        x: labels[index],
+                        y: 0
+                    });
+                }
+                lastValue = value;
+            });
+            
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: label,
+                        data: lineSegments,
+                        borderColor: color.replace(')', ', 1)').replace('var(', '').replace(')', ''),
+                        backgroundColor: color.replace(')', ', 1)').replace('var(', '').replace(')', ''),
+                        borderWidth: 1.5, // Thicker lines
+                        pointRadius: 0,
+                        stepped: false,
+                        spanGaps: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            display: true,
+                            ticks: {
+                                autoSkip: true,
+                                maxTicksLimit: 5,
+                                maxRotation: 0,
+                                font: {
+                                    size: 10
+                                }
+                            },
+                            grid: {
+                                display: false
+                            }
+                        },
+                        y: {
+                            display: true,
+                            min: -0.1,
+                            max: 1.1,
+                            ticks: {
+                                callback: function(value) {
+                                    if (value === 1) return 'Active';
+                                    if (value === 0) return 'Inactive';
+                                    return '';
+                                },
+                                font: {
+                                    size: 10
+                                }
+                            },
+                            grid: {
+                                color: function(context) {
+                                    return context.tick.value === 0 || context.tick.value === 1 ? 
+                                        'rgba(0, 0, 0, 0.1)' : 'transparent';
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: {
+                                    size: 12
+                                },
+                                boxWidth: 12,
+                                padding: 10
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${label}: ${context.parsed.y === 1 ? 'Active' : 'Inactive'}`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
+        } catch (error) {
+            console.error(`Error rendering ${label} chart:`, error);
+        }
+    }
+
+    function showError(message) {
+        loadingElement.style.display = "block";
+        loadingElement.innerHTML = `
+            <div style="color: var(--danger-color);">
+                <h3>Error Loading Data</h3>
+                <p>${message}</p>
+                <p>Please check the browser console (F12) for details.</p>
+            </div>
+        `;
+        console.error(message);
     }
     </script>
 </body>
