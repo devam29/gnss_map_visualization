@@ -141,7 +141,7 @@
         
         .popup-header {
             display: flex;
-            justify-content content: space-between;
+            justify-content: space-between;
             align-items: center;
             margin-bottom: 12px;
             padding-bottom: 8px;
@@ -319,10 +319,6 @@
             });
             updateMarkers();
             loadingElement.style.display = "none";
-        },
-        error: function(err) {
-            console.error("Error loading CSV:", err);
-            loadingElement.innerHTML = '<h3>Error Loading Data</h3><p>Please check the console for details.</p>';
         }
     });
 
@@ -445,23 +441,17 @@
                     map.closePopup(currentPopup);
                 });
             }, 100);
-        }).catch(function(err) {
-            console.error("Error loading station details:", err);
-            loadingElement.innerHTML = '<h3>Error Loading Data</h3><p>Please check the console for details.</p>';
         });
     }
 
     function loadCSV(url) {
-        return new Promise(function(resolve, reject) {
+        return new Promise(function(resolve) {
             Papa.parse(url, {
                 download: true,
                 header: true,
                 dynamicTyping: true,
                 complete: function(results) {
                     resolve(results.data);
-                },
-                error: function(err) {
-                    reject(err);
                 }
             });
         });
@@ -478,7 +468,7 @@
                         '<strong>Location:</strong> ' + (station.lat ? station.lat.toFixed(4) : '') + ', ' + (station.lon ? station.lon.toFixed(4) : '') + '<br>' +
                         '<strong>Elevation:</strong> ' + (station.height || 'N/A') + ' m<br>' +
                         '<strong>Performance:</strong> F1 ' + (station.F1 ? station.F1.toFixed(2) : 'N/A') + ' | ' +
-                        'TFR ' + (station.TFR ? station.TFR.toFixed(2) : 'N/A') + ' | Count ' + (station.Count || 'N/A') +
+                        'TFR ' + (station.TFR ? station.TF1.toFixed(2) : 'N/A') + ' | Count ' + (station.Count || 'N/A') +
                     '</p>' +
                 '</div>' +
                 '<div class="chart-container"><canvas id="precip-chart-' + station.Station_Name + '"></canvas></div>' +
@@ -530,7 +520,7 @@
             label: "Precipitation",
             labels: precipLabels,
             data: precipValues,
-            color: 'rgba(31, 119, 180, 1)', // Set opacity to 1 for full visibility
+            color: 'rgba(31, 119, 180, 0.7)', // You can adjust the opacity or color as needed
             fill: true, // Enable filling below the line
             yAxisID: 'y1', // Use a separate y-axis for precipitation
             yTitle: 'Precipitation (mm)',
@@ -553,7 +543,7 @@
                 },
                 y1: { 
                     beginAtZero: true,
-                    suggestedMax: Math.max(500, Math.max(...precipValues) * 1.2)
+                    suggestedMax: Math.max(50, Math.max(...precipValues) * 1.2)
                 },
                 y2: { 
                     beginAtZero: true,
