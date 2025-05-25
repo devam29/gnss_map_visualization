@@ -319,6 +319,10 @@
             });
             updateMarkers();
             loadingElement.style.display = "none";
+        },
+        error: function(err) {
+            console.error("Error loading CSV:", err);
+            loadingElement.innerHTML = '<h3>Error Loading Data</h3><p>Please check the console for details.</p>';
         }
     });
 
@@ -441,17 +445,23 @@
                     map.closePopup(currentPopup);
                 });
             }, 100);
+        }).catch(function(err) {
+            console.error("Error loading station details:", err);
+            loadingElement.innerHTML = '<h3>Error Loading Data</h3><p>Please check the console for details.</p>';
         });
     }
 
     function loadCSV(url) {
-        return new Promise(function(resolve) {
+        return new Promise(function(resolve, reject) {
             Papa.parse(url, {
                 download: true,
                 header: true,
                 dynamicTyping: true,
                 complete: function(results) {
                     resolve(results.data);
+                },
+                error: function(err) {
+                    reject(err);
                 }
             });
         });
@@ -657,7 +667,7 @@
                         chartData.push({ x: config.labels[index], y: 1 });
                     }
                 } else if (lastValue > 0.5) {
-                    chartData.push({ x: config.labels[index], y: 1 );
+                    chartData.push({ x: config.labels[index], y: 1 });
                     chartData.push({ x: config.labels[index], y: 0 });
                 }
                 lastValue = value;
