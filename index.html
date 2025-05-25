@@ -468,7 +468,7 @@
                         '<strong>Location:</strong> ' + (station.lat ? station.lat.toFixed(4) : '') + ', ' + (station.lon ? station.lon.toFixed(4) : '') + '<br>' +
                         '<strong>Elevation:</strong> ' + (station.height || 'N/A') + ' m<br>' +
                         '<strong>Performance:</strong> F1 ' + (station.F1 ? station.F1.toFixed(2) : 'N/A') + ' | ' +
-                        'TFR ' + (station.TFR ? station.TF1.toFixed(2) : 'N/A') + ' | Count ' + (station.Count || 'N/A') +
+                        'TFR ' + (station.TFR ? station.TFR.toFixed(2) : 'N/A') + ' | Count ' + (station.Count || 'N/A') +
                     '</p>' +
                 '</div>' +
                 '<div class="chart-container"><canvas id="precip-chart-' + station.Station_Name + '"></canvas></div>' +
@@ -503,7 +503,7 @@
         // Format time labels based on actual data range
         var displayTimes = formatTimeLabels(allTimes, timeRange);
 
-        // Precipitation Chart - Filled area chart with improved visibility
+        // Precipitation Chart - Bar chart with improved visibility
         var precipValues = [];
         var precipLabels = [];
 
@@ -516,13 +516,11 @@
 
         allCharts.push(renderChart({
             canvasId: 'precip-chart-' + stationName,
-            type: 'line', // Changed from 'bar' to 'line'
+            type: 'bar',
             label: "Precipitation",
             labels: precipLabels,
             data: precipValues,
-            color: 'rgba(31, 119, 180, 0.7)', // You can adjust the opacity or color as needed
-            fill: true, // Enable filling below the line
-            yAxisID: 'y1', // Use a separate y-axis for precipitation
+            color: 'rgba(31, 119, 180, 0.7)',
             yTitle: 'Precipitation (mm)',
             scales: {
                 x: {
@@ -541,17 +539,12 @@
                     },
                     grid: { display: false }
                 },
-                y1: { 
+                y: { 
                     beginAtZero: true,
-                    suggestedMax: Math.max(50, Math.max(...precipValues) * 1.2)
-                },
-                y2: { 
-                    beginAtZero: true,
-                    suggestedMax: 1.2
+                    suggestedMax: Math.max(50, Math.max(...precipValues) * 1.2) // Cap at 50mm or 20% above max value
                 }
             },
-            borderWidth: 1.5, // Increased border width for better visibility
-            pointRadius: 0 // Hide data points if desired
+            borderWidth: 0
         }));
 
         // Model charts - line charts with their own time ranges
@@ -580,7 +573,6 @@
                 labels: chartLabels,
                 data: chartData,
                 color: config.color || getModelColor(config.label),
-                yAxisID: 'y2', // Use the second y-axis for model data
                 scales: {
                     x: {
                         type: 'category',
@@ -598,7 +590,7 @@
                         },
                         grid: { display: false }
                     },
-                    y2: { 
+                    y: { 
                         min: -0.1,
                         max: 1.1,
                         ticks: {
