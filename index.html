@@ -520,7 +520,7 @@
             label: "Precipitation",
             labels: precipLabels,
             data: precipValues,
-            color: 'rgba(31, 119, 180, 1)',
+            color: 'rgba(31, 119, 180, 1)', // Changed from 0.7 to 1 (full opacity)
             yTitle: 'Precipitation (mm)',
             scales: {
                 x: {
@@ -545,11 +545,11 @@
                 }
             },
             borderWidth: 0,
-            barThickness: 'flex',
-            maxBarThickness: 20
+            barThickness: 'flex', // Added for better bar width control
+            maxBarThickness: 20 // Added to prevent bars from becoming too thin
         }));
 
-        // Model charts - vertical lines for 1 values
+        // Model charts - line charts with their own time ranges
         var charts = [
             { id: 'truth-chart-' + stationName, label: "Ground Truth", data: modelData, field: 'true_label' },
             { id: 'lstm-chart-' + stationName, label: "LSTM Predictions", data: modelData, field: 'Predicted_lstm' },
@@ -561,17 +561,16 @@
             var chartData = [];
             var chartLabels = [];
 
-            // Only include points where value is 1 (active)
             config.data.forEach(row => {
-                if (row.Epoch_Time && parseFloat(row[config.field]) > 0.5) {
+                if (row.Epoch_Time) {
                     chartLabels.push(row.Epoch_Time);
-                    chartData.push(1); // Only show vertical lines for active periods
+                    chartData.push(parseFloat(row[config.field]) || 0);
                 }
             });
 
             allCharts.push(renderChart({
                 canvasId: config.id,
-                type: 'bar',
+                type: 'line',
                 label: config.label,
                 labels: chartLabels,
                 data: chartData,
@@ -606,9 +605,7 @@
                         }
                     }
                 },
-                borderWidth: 0,
-                barThickness: 2, // Make the bars very thin to appear as vertical lines
-                categoryPercentage: 1.0
+                borderWidth: 1.5
             }));
         });
     }
@@ -642,14 +639,7 @@
 
         // Prepare data based on chart type
         var chartData;
-        if (config.type === 'bar') {
-            chartData = config.data.map(function(value, index) {
-                return {
-                    x: config.labels[index],
-                    y: value
-                };
-            });
-        } else {
+        if (config.type === 'line') {
             chartData = [];
             var lastValue = 0;
             config.data.forEach(function(value, index) {
@@ -666,6 +656,13 @@
                 }
                 lastValue = value;
             });
+        } else {
+            chartData = config.data.map(function(value, index) {
+                return {
+                    x: config.labels[index],
+                    y: value
+                };
+            });
         }
 
         return new Chart(ctx, {
@@ -679,7 +676,7 @@
                     borderColor: config.color,
                     borderWidth: config.borderWidth || 0.5,
                     barPercentage: 0.8,
-                    categoryPercentage: config.categoryPercentage || 0.9,
+                    categoryPercentage: 0.9,
                     maxBarThickness: config.maxBarThickness || 50,
                     barThickness: config.barThickness || 'flex',
                     pointRadius: 0
@@ -702,8 +699,8 @@
                     tooltip: {
                         callbacks: {
                             label: function(context) {
-                                if (context.parsed.y === 1) {
-                                    return config.label + ': Active';
+                                if (config.type === 'line') {
+                                    return config.label + ': ' + (context.parsed.y === 1 ? 'Active' : 'Inactive');
                                 }
                                 return config.label + ': ' + context.parsed.y.toFixed(3) + (config.yTitle && config.yTitle.includes('mm') ? ' mm' : '');
                             }
