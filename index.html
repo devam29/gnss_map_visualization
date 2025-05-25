@@ -226,6 +226,7 @@
 </head>
 <body>
     <div id="loading">
+        <div class="spinner"></div>
         <h3>Loading GNSS Station Data</h3>
         <p>Please wait while we load the station information...</p>
     </div>
@@ -251,6 +252,23 @@
     </div>
 
     <div id="map"></div>
+    <div id="map-legend" style="position: absolute; bottom: 10px; left: 10px; z-index: 1000; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <strong>Performance Metric:</strong>
+        <ul style="list-style: none; padding: 0; margin: 5px 0 0 0;">
+            <li style="display: flex; align-items: center;">
+                <span style="width: 12px; height: 12px; background: hsl(0, 100%, 45%); display: inline-block; margin-right: 5px;"></span>
+                Low Performance
+            </li>
+            <li style="display: flex; align-items: center;">
+                <span style="width: 12px; height: 12px; background: hsl(60, 100%, 45%); display: inline-block; margin-right: 5px;"></span>
+                Medium Performance
+            </li>
+            <li style="display: flex; align-items: center;">
+                <span style="width: 12px; height: 12px; background: hsl(120, 100%, 45%); display: inline-block; margin-right: 5px;"></span>
+                High Performance
+            </li>
+        </ul>
+    </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -467,67 +485,111 @@
             chart.destroy();
         });
         allCharts = [];
-        
-        var alignedData = alignData(modelData, precipData);
-        var displayTimes = formatTimeLabels(alignedData.times);
 
-        // Common scale options for alignment
-        var commonScaleOptions = {
-            display: true,
-            ticks: {
-                autoSkip: true,
-                maxTicksLimit: 5,
-                maxRotation: 0,
-                font: { size: 10 }
-            },
-            grid: { display: false }
-        };
+        // Process each dataset separately to maintain their natural time ranges
+        var modelTimes = modelData.map(d => d.Epoch_Time).filter(Boolean);
+        var precipTimes = precipData.map(d => d.Epoch_Time).filter(Boolean);
 
-        // Find maximum precipitation value (capped at 100mm for better visibility)
-        var maxPrecip = Math.min(100, Math.max(...alignedData.precipValues));
-        
-        // Precipitation Chart with improved visibility
+        // Find the actual time range for this station
+        var allTimes = [...new Set([...modelTimes, ...precipTimes])].sort();
+        var timeRange = allTimes.length > 0 ? {
+            min: allTimes[0],
+            max: allTimes[allTimes.length - 1]
+        } : null;
+
+        // Only proceed if we have valid data
+        if (!timeRange) return;
+
+        // Format time labels based on actual data range
+        var displayTimes = formatTimeLabels(allTimes, timeRange);
+
+        // Precipitation Chart - Bar chart with improved visibility
+        var precipValues = [];
+        var precipLabels = [];
+
+        precipData.forEach(row => {
+            if (row.Epoch_Time) {
+                precipLabels.push(row.Epoch_Time);
+                precipValues.push(parseFloat(row.Rolling_Sum) || 0);
+            }
+        });
+
         allCharts.push(renderChart({
             canvasId: 'precip-chart-' + stationName,
             type: 'bar',
             label: "Precipitation",
-            labels: displayTimes,
-            data: alignedData.precipValues,
-            color: function(context) {
-                // Use a gradient from blue to dark blue for better visibility
-                const value = context.raw.y;
-                const alpha = Math.min(1, value / maxPrecip * 0.8 + 0.2); // Ensure minimum opacity
-                return `rgba(31, 119, 180, ${alpha})`;
-            },
+            labels: precipLabels,
+            data: precipValues,
+            color: 'rgba(31, 119, 180, 0.7)',
             yTitle: 'Precipitation (mm)',
             scales: {
-                x: commonScaleOptions,
+                x: {
+                    type: 'category',
+                    display: true,
+                    ticks: {
+                        callback: function(value, index) {
+                            // Only show labels at certain intervals
+                            if (index % Math.ceil(precipLabels.length / 5) === 0 || index === precipLabels.length - 1) {
+                                return precipLabels[index].split(' ')[0];
+                            }
+                            return '';
+                        },
+                        maxRotation: 0,
+                        font: { size: 10 }
+                    },
+                    grid: { display: false }
+                },
                 y: { 
                     beginAtZero: true,
-                    max: maxPrecip * 1.1 // Add 10% padding
+                    suggestedMax: Math.max(50, Math.max(...precipValues) * 1.2) // Cap at 50mm or 20% above max value
                 }
             },
             borderWidth: 0
         }));
 
-        // Other charts
+        // Model charts - line charts with their own time ranges
         var charts = [
-            { id: 'truth-chart-' + stationName, label: "Ground Truth", data: alignedData.truthValues, color: 'rgba(46, 46, 46, 1)' },
-            { id: 'lstm-chart-' + stationName, label: "LSTM Predictions", data: alignedData.lstmValues, color: 'rgba(148, 103, 189, 1)' },
-            { id: 'unet-chart-' + stationName, label: "UNet Predictions", data: alignedData.unetValues, color: 'rgba(44, 160, 44, 1)' },
-            { id: 'xgb-chart-' + stationName, label: "XGBoost Predictions", data: alignedData.xgbValues, color: 'rgba(214, 39, 40, 1)' }
+            { id: 'truth-chart-' + stationName, label: "Ground Truth", data: modelData, field: 'true_label' },
+            { id: 'lstm-chart-' + stationName, label: "LSTM Predictions", data: modelData, field: 'Predicted_lstm' },
+            { id: 'unet-chart-' + stationName, label: "UNet Predictions", data: modelData, field: 'Predicted_nn' },
+            { id: 'xgb-chart-' + stationName, label: "XGBoost Predictions", data: modelData, field: 'Predicted_Binary' }
         ];
 
         charts.forEach(function(config) {
+            var chartData = [];
+            var chartLabels = [];
+
+            config.data.forEach(row => {
+                if (row.Epoch_Time) {
+                    chartLabels.push(row.Epoch_Time);
+                    chartData.push(parseFloat(row[config.field]) || 0);
+                }
+            });
+
             allCharts.push(renderChart({
                 canvasId: config.id,
                 type: 'line',
                 label: config.label,
-                labels: displayTimes,
-                data: config.data,
-                color: config.color,
+                labels: chartLabels,
+                data: chartData,
+                color: config.color || getModelColor(config.label),
                 scales: {
-                    x: commonScaleOptions,
+                    x: {
+                        type: 'category',
+                        display: true,
+                        ticks: {
+                            callback: function(value, index) {
+                                // Only show labels at certain intervals
+                                if (index % Math.ceil(chartLabels.length / 5) === 0 || index === chartLabels.length - 1) {
+                                    return chartLabels[index].split(' ')[0];
+                                }
+                                return '';
+                            },
+                            maxRotation: 0,
+                            font: { size: 10 }
+                        },
+                        grid: { display: false }
+                    },
                     y: { 
                         min: -0.1,
                         max: 1.1,
@@ -546,93 +608,33 @@
         });
     }
 
-    function alignData(modelData, precipData) {
-        // Create a combined set of all available timestamps
-        const allTimes = new Set();
-        
-        // Add precipitation timestamps
-        precipData.forEach(row => {
-            if (row.Epoch_Time) allTimes.add(row.Epoch_Time);
-        });
-        
-        // Add model timestamps
-        modelData.forEach(row => {
-            if (row.Epoch_Time) allTimes.add(row.Epoch_Time);
-        });
-        
-        // Convert to sorted array
-        const sortedTimes = Array.from(allTimes).sort();
-        
-        // Create maps for quick lookup
-        const modelMap = {};
-        modelData.forEach(row => {
-            if (row.Epoch_Time) {
-                modelMap[row.Epoch_Time] = {
-                    truth: parseFloat(row.true_label) || 0,
-                    lstm: parseFloat(row.Predicted_lstm) || 0,
-                    unet: parseFloat(row.Predicted_nn) || 0,
-                    xgb: parseFloat(row.Predicted_Binary) || 0
-                };
-            }
-        });
-        
-        const precipMap = {};
-        precipData.forEach(row => {
-            if (row.Epoch_Time) {
-                precipMap[row.Epoch_Time] = parseFloat(row.Rolling_Sum) || 0;
-            }
-        });
-        
-        // Build the aligned data structure
-        const result = { 
-            times: [], 
-            precipValues: [], 
-            truthValues: [], 
-            lstmValues: [], 
-            unetValues: [], 
-            xgbValues: [] 
+    function getModelColor(modelName) {
+        const colors = {
+            'Ground Truth': 'rgba(46, 46, 46, 1)',
+            'LSTM Predictions': 'rgba(148, 103, 189, 1)',
+            'UNet Predictions': 'rgba(44, 160, 44, 1)',
+            'XGBoost Predictions': 'rgba(214, 39, 40, 1)'
         };
-        
-        sortedTimes.forEach(time => {
-            result.times.push(time);
-            
-            // Get precipitation value or 0 if missing
-            result.precipValues.push(precipMap[time] || 0);
-            
-            // Get model values or 0 if missing
-            const modelValues = modelMap[time] || {
-                truth: 0,
-                lstm: 0,
-                unet: 0,
-                xgb: 0
-            };
-            
-            result.truthValues.push(modelValues.truth);
-            result.lstmValues.push(modelValues.lstm);
-            result.unetValues.push(modelValues.unet);
-            result.xgbValues.push(modelValues.xgb);
-        });
-        
-        return result;
+        return colors[modelName] || 'rgba(31, 119, 180, 1)';
     }
 
-    function formatTimeLabels(times) {
+    function formatTimeLabels(times, timeRange) {
         if (times.length === 0) return [];
-        
+
         // Calculate step size to show about 5 labels
         const step = Math.max(1, Math.floor(times.length / 5));
-        
+
         return times.map((time, index) => {
             // Show label for first, last, and every step-th item
             return (index === 0 || index === times.length - 1 || index % step === 0) 
-                ? time.split(' ')[0] 
+                ? time.split(' ')[0]
                 : '';
         });
     }
 
     function renderChart(config) {
         var ctx = document.getElementById(config.canvasId).getContext('2d');
-        
+
         // Prepare data based on chart type
         var chartData;
         if (config.type === 'line') {
@@ -685,9 +687,9 @@
                         display: true,
                         position: 'top',
                         labels: { 
-                            font: { size: 12 }, 
-                            boxWidth: 12, 
-                            padding: 10 
+                            font: { size: 12 },
+                            boxWidth: 12,
+                            padding: 10
                         }
                     },
                     tooltip: {
