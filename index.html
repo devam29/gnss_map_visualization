@@ -520,7 +520,7 @@
             label: "Precipitation",
             labels: precipLabels,
             data: precipValues,
-            color: 'rgba(31, 119, 180, 1)', // Changed from 0.7 to 1 (full opacity)
+            color: 'rgba(31, 119, 180, 1)',
             yTitle: 'Precipitation (mm)',
             scales: {
                 x: {
@@ -541,15 +541,15 @@
                 },
                 y: { 
                     beginAtZero: true,
-                    suggestedMax: Math.max(50, Math.max(...precipValues) * 1.2) // Cap at 50mm or 20% above max value
+                    suggestedMax: Math.max(50, Math.max(...precipValues) * 1.2)
                 }
             },
             borderWidth: 0,
-            barThickness: 'flex', // Added for better bar width control
-            maxBarThickness: 20 // Added to prevent bars from becoming too thin
+            barThickness: 'flex',
+            maxBarThickness: 20
         }));
 
-        // Model charts - line charts with their own time ranges
+        // Model charts - now using bar charts instead of line charts
         var charts = [
             { id: 'truth-chart-' + stationName, label: "Ground Truth", data: modelData, field: 'true_label' },
             { id: 'lstm-chart-' + stationName, label: "LSTM Predictions", data: modelData, field: 'Predicted_lstm' },
@@ -570,7 +570,7 @@
 
             allCharts.push(renderChart({
                 canvasId: config.id,
-                type: 'line',
+                type: 'bar', // Changed from 'line' to 'bar'
                 label: config.label,
                 labels: chartLabels,
                 data: chartData,
@@ -605,7 +605,9 @@
                         }
                     }
                 },
-                borderWidth: 1.5
+                borderWidth: 0, // Changed from 1.5 to 0 for bars
+                barThickness: 'flex',
+                maxBarThickness: 20 // Added for better bar visibility
             }));
         });
     }
@@ -638,32 +640,12 @@
         var ctx = document.getElementById(config.canvasId).getContext('2d');
 
         // Prepare data based on chart type
-        var chartData;
-        if (config.type === 'line') {
-            chartData = [];
-            var lastValue = 0;
-            config.data.forEach(function(value, index) {
-                if (value > 0.5) {
-                    if (lastValue <= 0.5) {
-                        chartData.push({ x: config.labels[index], y: 0 });
-                        chartData.push({ x: config.labels[index], y: 1 });
-                    } else {
-                        chartData.push({ x: config.labels[index], y: 1 });
-                    }
-                } else if (lastValue > 0.5) {
-                    chartData.push({ x: config.labels[index], y: 1 });
-                    chartData.push({ x: config.labels[index], y: 0 });
-                }
-                lastValue = value;
-            });
-        } else {
-            chartData = config.data.map(function(value, index) {
-                return {
-                    x: config.labels[index],
-                    y: value
-                };
-            });
-        }
+        var chartData = config.data.map(function(value, index) {
+            return {
+                x: config.labels[index],
+                y: value
+            };
+        });
 
         return new Chart(ctx, {
             type: config.type,
@@ -677,7 +659,7 @@
                     borderWidth: config.borderWidth || 0.5,
                     barPercentage: 0.8,
                     categoryPercentage: 0.9,
-                    maxBarThickness: config.maxBarThickness || 50,
+                    maxBarThickness: config.maxBarThickness || 20,
                     barThickness: config.barThickness || 'flex',
                     pointRadius: 0
                 }]
