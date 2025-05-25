@@ -520,7 +520,7 @@
             label: "Precipitation",
             labels: precipLabels,
             data: precipValues,
-            color: 'rgba(31, 119, 180, 0.7)',
+            color: 'rgba(31, 119, 180, 1)', // Changed from 0.7 to 1 (full opacity)
             yTitle: 'Precipitation (mm)',
             scales: {
                 x: {
@@ -544,7 +544,9 @@
                     suggestedMax: Math.max(50, Math.max(...precipValues) * 1.2) // Cap at 50mm or 20% above max value
                 }
             },
-            borderWidth: 0
+            borderWidth: 0,
+            barThickness: 'flex', // Added for better bar width control
+            maxBarThickness: 20 // Added to prevent bars from becoming too thin
         }));
 
         // Model charts - line charts with their own time ranges
@@ -670,11 +672,13 @@
                 datasets: [{
                     label: config.label,
                     data: chartData,
-                    backgroundColor: typeof config.color === 'function' ? config.color : config.color,
+                    backgroundColor: config.color,
                     borderColor: config.color,
                     borderWidth: config.borderWidth || 0.5,
                     barPercentage: 0.8,
-                    categoryPercentage: 0.8,
+                    categoryPercentage: 0.9,
+                    maxBarThickness: config.maxBarThickness || 50,
+                    barThickness: config.barThickness || 'flex',
                     pointRadius: 0
                 }]
             },
